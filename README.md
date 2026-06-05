@@ -23,6 +23,10 @@ This is a v1 polling-based service. It intentionally keeps webhooks, multiple ad
 - Configurable raw update payload retention that redacts old raw JSON payloads without deleting business metadata
 - Privacy-aware Anthropic summary client with whitelisted LLM payload fields and prompt caching
 
+## Architecture
+
+![Summary Relay Bot architecture](docs/architecture/summary-relay-bot-architecture.png)
+
 ## Requirements
 
 - Python 3.12+

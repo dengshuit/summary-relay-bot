@@ -23,6 +23,10 @@
 - 支持原始 update payload 保留周期，到期仅脱敏 JSON payload，不删除业务元数据
 - Anthropic 摘要客户端具备隐私边界，只发送白名单字段，并支持 prompt caching
 
+## 架构
+
+![Summary Relay Bot 架构图](docs/architecture/summary-relay-bot-architecture.png)
+
 ## 环境要求
 
 - Python 3.12+

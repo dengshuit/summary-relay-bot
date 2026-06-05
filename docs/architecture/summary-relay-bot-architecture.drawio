@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="Architecture">
+    <mxGraphModel dx="1800" dy="1180" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1180" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" value="外部集成" style="swimlane;startSize=30;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="30" width="1700" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="3" value="Telegram 会话&#xa;管理员 / 群组 / 私聊用户" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;" vertex="1" parent="2">
+          <mxGeometry x="60" y="55" width="280" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="Telegram Bot API&#xa;轮询、sendMessage、copyMessage" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;" vertex="1" parent="2">
+          <mxGeometry x="430" y="50" width="300" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="Anthropic API&#xa;LLM 摘要" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;" vertex="1" parent="2">
+          <mxGeometry x="820" y="55" width="260" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value=".env / 运行配置&#xa;BOT_TOKEN, OWNER_ID, DATABASE_URL, LLM_*" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="2">
+          <mxGeometry x="1180" y="50" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="7" value="summary-relay-bot 进程" style="swimlane;startSize=30;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="230" width="1210" height="660" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="main.py 启动装配&#xa;AppConfig, Bot, Dispatcher, Engine, Scheduler" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="7">
+          <mxGeometry x="60" y="55" width="300" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="9" value="Aiogram Dispatcher + 路由&#xa;admin, admin_groups, admin_replies, private_user, group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="7">
+          <mxGeometry x="455" y="55" width="340" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="10" value="APScheduler&#xa;按群定时摘要 + 每日保留清理" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" vertex="1" parent="7">
+          <mxGeometry x="870" y="55" width="280" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="11" value="业务服务层" style="swimlane;startSize=28;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="7">
+          <mxGeometry x="60" y="220" width="1090" height="250" as="geometry" />
+        </mxCell>
+        <mxCell id="12" value="更新入库 + 群消息采集&#xa;原始 update 持久化；群发现；消息提取" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;" vertex="1" parent="11">
+          <mxGeometry x="30" y="55" width="245" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="13" value="摘要任务&#xa;手动/定时执行；运行租约；LLM + 送达成功后推进游标" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="11">
+          <mxGeometry x="300" y="55" width="255" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="14" value="私聊转发 + 管理员回复&#xa;信息卡片、copyMessage、回复映射、/reply 路由" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;" vertex="1" parent="11">
+          <mxGeometry x="580" y="55" width="250" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="15" value="群设置 + 保留策略&#xa;/groups、启停、间隔更新、原始 payload 脱敏" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;" vertex="1" parent="11">
+          <mxGeometry x="855" y="55" width="205" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="16" value="共享辅助模块&#xa;message_extraction, summary_content, info_cards, Telegram 错误分类" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="11">
+          <mxGeometry x="210" y="170" width="670" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="17" value="PrivacyAwareSummaryClient&#xa;只发送 message_type + summary_content" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="7">
+          <mxGeometry x="190" y="535" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="18" value="Async SQLAlchemy 边界&#xa;session_scope + repositories" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" vertex="1" parent="7">
+          <mxGeometry x="670" y="535" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="19" value="PostgreSQL 持久化" style="swimlane;startSize=30;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1300" y="230" width="440" height="660" as="geometry" />
+        </mxCell>
+        <mxCell id="20" value="PostgreSQL 16&#xa;&#xa;telegram_updates&#xa;groups / group_messages / summary_state&#xa;summary_jobs / summary_results&#xa;private_users / private_messages / admin_reply_maps&#xa;delivery_attempts" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=20;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="19">
+          <mxGeometry x="55" y="80" width="330" height="350" as="geometry" />
+        </mxCell>
+        <mxCell id="21" value="数据库迁移&#xa;Alembic 初始 schema" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="19">
+          <mxGeometry x="85" y="505" width="270" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="22" value="部署" style="swimlane;startSize=30;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="940" width="1700" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="23" value="Docker 镜像 / 控制台入口&#xa;summary-relay-bot = summary_relay_bot.main:main" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;" vertex="1" parent="22">
+          <mxGeometry x="70" y="60" width="440" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="24" value="docker-compose.yml&#xa;bot 服务依赖健康的 postgres" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;" vertex="1" parent="22">
+          <mxGeometry x="630" y="60" width="390" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="25" value="postgres-data 卷&#xa;持久化数据库存储" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;" vertex="1" parent="22">
+          <mxGeometry x="1150" y="60" width="340" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="100" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="3" target="4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="101" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="4" target="8">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="620" y="205" />
+              <mxPoint x="250" y="205" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="102" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="6" target="8">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1350" y="205" />
+              <mxPoint x="250" y="205" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="103" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="8" target="9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="104" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="9" target="11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="105" value="定时任务" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.85;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="10" target="11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="106" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.35;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="11" target="17">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="107" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.72;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="11" target="18">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="108" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="17" target="5">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="410" y="205" />
+              <mxPoint x="990" y="205" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="109" value="asyncpg" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.45;entryDx=0;entryDy=0;" edge="1" parent="1" source="18" target="20">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="110" value="alembic upgrade head" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="21" target="20">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="111" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="23" target="24">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="112" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="24" target="25">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
