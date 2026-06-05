@@ -1,5 +1,7 @@
 # Telegram Summary Relay Bot
 
+[中文文档](README.zh-CN.md)
+
 Personal Telegram bot that quietly watches group chats, sends private incremental summaries to one administrator, and relays private user messages through the bot so the administrator can reply without exposing a personal account.
 
 This is a v1 polling-based service. It intentionally keeps webhooks, multiple administrators, Redis queues, dashboards, group-public summaries, media transcription, and media file-body storage out of scope.
@@ -25,13 +27,14 @@ This is a v1 polling-based service. It intentionally keeps webhooks, multiple ad
 
 - Python 3.12+
 - PostgreSQL 16+
+- Docker and Docker Compose for container deployment
 - Telegram bot token from BotFather
 - Administrator Telegram numeric user ID
 - Anthropic API key for group summaries
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill in safe local values.
+Copy `.env.example` to `.env` and fill in safe local or production values.
 
 ```bash
 cp .env.example .env
@@ -64,41 +67,77 @@ Important optional variables:
 
 Do not commit real tokens, database passwords, or API keys.
 
-## Quick start with Docker Compose
+## Production Deployment
 
-1. Create and edit `.env`.
+Production deployment is centered on the Docker image and `docker-compose.yml`.
 
-   ```bash
-   cp .env.example .env
-   ```
+### Build and publish the Docker image
 
-2. Start PostgreSQL.
+The GitHub Actions workflow in `.github/workflows/docker-image.yml` builds the image from `Dockerfile` and publishes it to GitHub Container Registry:
 
-   ```bash
-   docker compose up -d postgres
-   ```
+```text
+ghcr.io/<owner>/<repo>
+```
 
-3. Run database migrations.
+Workflow behavior:
 
-   ```bash
-   docker compose run --rm bot alembic upgrade head
-   ```
+- Pushes to `main` or `master` build and publish the image.
+- Tags matching `v*.*.*` build and publish versioned image tags.
+- Pull requests build the image but do not publish it.
+- Published tags include branch/tag refs, `sha-<commit>`, and `latest` on the default branch.
 
-4. Start the bot.
+The workflow uses GitHub's built-in `GITHUB_TOKEN`; no extra registry secret is required for GHCR in the same repository.
 
-   ```bash
-   docker compose up --build bot
-   ```
+### Configure production environment
 
-Or start all services after migrations:
+Create `.env` on the deployment host:
 
 ```bash
-docker compose up --build
+cp .env.example .env
+```
+
+Set production-safe values for at least:
+
+```env
+BOT_TOKEN=replace-with-real-bot-token
+OWNER_ID=replace-with-admin-telegram-user-id
+DATABASE_URL=postgresql+asyncpg://summary_bot:replace-with-db-password@postgres:5432/summary_relay_bot
+LLM_API_KEY=replace-with-real-llm-api-key
+POSTGRES_PASSWORD=replace-with-db-password
+```
+
+`DATABASE_URL` and `POSTGRES_PASSWORD` must use the same database password when using the bundled PostgreSQL service.
+
+### Start with a published image
+
+After the GitHub Actions workflow publishes an image, set `BOT_IMAGE` to the GHCR image tag:
+
+```bash
+export BOT_IMAGE=ghcr.io/<owner>/<repo>:latest
+docker compose pull bot
+docker compose up -d postgres
+docker compose run --rm bot alembic upgrade head
+docker compose up -d bot
 ```
 
 Run exactly one polling process for one bot token. Telegram polling and webhooks are mutually exclusive, so unset any webhook before using polling or set `ALLOW_WEBHOOK_DELETE=true` deliberately.
 
-## Local development
+### Upgrade production
+
+Pull the newer image, run migrations, and restart the bot:
+
+```bash
+export BOT_IMAGE=ghcr.io/<owner>/<repo>:latest
+docker compose pull bot
+docker compose run --rm bot alembic upgrade head
+docker compose up -d bot
+```
+
+## Development Deployment
+
+Use local Python for fast iteration and Docker Compose when you need a containerized local run.
+
+### Local Python environment
 
 Install the package and development dependencies:
 
@@ -132,7 +171,39 @@ Check installed dependency consistency:
 python3 -m pip check
 ```
 
-## Database migrations
+### Local Docker Compose
+
+Create and edit `.env`:
+
+```bash
+cp .env.example .env
+```
+
+Start PostgreSQL:
+
+```bash
+docker compose up -d postgres
+```
+
+Run database migrations:
+
+```bash
+docker compose run --rm bot alembic upgrade head
+```
+
+Build and start the bot locally:
+
+```bash
+docker compose up --build bot
+```
+
+Or start all services after migrations:
+
+```bash
+docker compose up --build
+```
+
+## Database Migrations
 
 Run migrations before starting the bot against a fresh database:
 
@@ -146,7 +217,7 @@ When using Docker Compose, run migrations through the bot image:
 docker compose run --rm bot alembic upgrade head
 ```
 
-## Telegram setup
+## Telegram Setup
 
 1. Create a bot with BotFather and set `BOT_TOKEN`.
 2. Find the administrator's numeric Telegram user ID and set `OWNER_ID`.
@@ -156,7 +227,7 @@ docker compose run --rm bot alembic upgrade head
 
 The bot is quiet in groups by design. Summaries and management responses are sent only in the administrator's private chat.
 
-## Administrator commands
+## Administrator Commands
 
 Administrator commands work only in the administrator's private chat with the bot.
 
@@ -174,7 +245,7 @@ Administrator commands work only in the administrator's private chat with the bo
 
 Command menu scopes are only a visibility aid. Server-side owner and private-chat checks still authorize every admin handler.
 
-## Summary behavior
+## Summary Behavior
 
 Each group has an independent internal sequence cursor.
 
@@ -190,7 +261,7 @@ LLM failures, timeouts, empty output, and Telegram delivery failures leave the c
 
 Scheduled and manual summaries share the same summary service and cursor logic. APScheduler `coalesce` and `max_instances=1` are local protections; the database running-job constraint is the correctness boundary for overlapping jobs.
 
-## Private relay behavior
+## Private Relay Behavior
 
 When a non-admin private user messages the bot:
 
@@ -218,7 +289,7 @@ Cleanup redacts old raw update JSON payload bodies only. It preserves:
 - summary jobs
 - summary results
 
-## Privacy boundaries
+## Privacy Boundaries
 
 - Raw Telegram update JSON is sensitive and retained only for the configured retention window.
 - The service stores media metadata and Telegram file identifiers, but not media file bodies.
@@ -227,7 +298,7 @@ Cleanup redacts old raw update JSON payload bodies only. It preserves:
 - Normal logs must not include bot tokens, database passwords, LLM API keys, raw update JSON, private relay content, Telegram numeric IDs, file IDs, full prompt bodies, or raw provider responses.
 - Configuration rendering redacts secrets and sensitive numeric identifiers.
 
-## Manual verification checklist
+## Manual Verification Checklist
 
 Use a test bot and non-production data.
 
@@ -253,7 +324,7 @@ Use a test bot and non-production data.
 | Administrator does not receive summaries or relay notifications | Confirm the administrator started the bot privately and has not blocked it. |
 | Reply is rejected as unmapped | Reply directly to the info card or copied message, wait briefly for mapping persistence, or use `/reply` for a known user. |
 
-## Scope boundaries
+## Scope Boundaries
 
 Deferred from v1:
 
