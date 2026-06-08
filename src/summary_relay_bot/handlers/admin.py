@@ -38,7 +38,6 @@ def build_router(config: AppConfig) -> Router:
         Command("summary", "groups", "enable_group", "disable_group", "set_interval", "reply"),
         PrivateNonOwnerFilter(config.owner_id),
     )
-    router.message.register(handle_user_start, Command("start"), PrivateNonOwnerFilter(config.owner_id))
     router.message.register(handle_user_help, Command("help"), PrivateNonOwnerFilter(config.owner_id))
     return router
 
@@ -49,12 +48,6 @@ async def handle_admin_start(message: Message) -> None:
 
 async def handle_admin_help(message: Message) -> None:
     await message.answer(ADMIN_HELP)
-
-
-async def handle_user_start(message: Message, config: AppConfig) -> None:
-    if is_owner_user(getattr(getattr(message, "from_user", None), "id", None), config.owner_id):
-        return
-    await message.answer(USER_HELP)
 
 
 async def handle_user_help(message: Message, config: AppConfig) -> None:
