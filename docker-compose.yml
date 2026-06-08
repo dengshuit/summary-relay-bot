@@ -1,6 +1,6 @@
 services:
   bot:
-    image: ${BOT_IMAGE:-summary-relay-bot:local}
+    image: ${BOT_IMAGE:-ghcr.io/dengshuit/summary-relay-bot:latest}
     build:
       context: .
       dockerfile: Dockerfile
