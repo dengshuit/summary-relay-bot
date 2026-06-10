@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
+from aiogram.exceptions import TelegramAPIError, TelegramUnauthorizedError
+from aiogram.utils.token import TokenValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -17,14 +20,29 @@ from summary_relay_bot.db.models import (
     SummaryProfile,
     utcnow,
 )
-from summary_relay_bot.services.secrets import SecretService, redact_configured_secret
+from summary_relay_bot.services.secrets import SecretError, SecretService, redact_configured_secret
+from summary_relay_bot.telegram.bot import create_bot
 
 
 class RuntimeConfigError(ValueError):
     pass
 
 
+class BotInstanceNotFoundError(RuntimeConfigError):
+    pass
+
+
 SUPPORTED_LLM_PROVIDER_TYPES = frozenset({"anthropic", "openai", "openai_compatible"})
+_UNSET = object()
+
+
+def redact_owner_id(owner_id: int | None) -> str | None:
+    if owner_id is None:
+        return None
+    rendered = str(owner_id)
+    if len(rendered) <= 4:
+        return "*" * len(rendered)
+    return f"{rendered[:2]}***{rendered[-2:]}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +65,47 @@ class BotRuntimeConfig:
     def __repr__(self) -> str:
         args = ", ".join(f"{key}={value!r}" for key, value in self.safe_dict().items())
         return f"BotRuntimeConfig({args})"
+
+
+@dataclass(frozen=True, slots=True)
+class SecretState:
+    configured: bool
+    updated_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class BotInstanceView:
+    id: int
+    name: str
+    owner_id_redacted: str
+    telegram_bot_id: int | None
+    telegram_username: str | None
+    enabled: bool
+    status: str
+    needs_restart: bool
+    last_validated_at: datetime | None
+    secret: SecretState
+
+
+@dataclass(frozen=True, slots=True)
+class BotIdentity:
+    telegram_bot_id: int
+    telegram_username: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class BotValidationResult:
+    status: str
+    last_validated_at: datetime
+    telegram_bot_id: int | None
+    telegram_username: str | None
+    error_type: str | None = None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _BotTokenConfig:
+    bot_token: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,8 +222,66 @@ async def create_bot_instance(
     return bot_instance
 
 
+def _bot_instance_redacted_dict(bot_instance: BotInstance) -> dict[str, Any]:
+    return {
+        "id": bot_instance.id,
+        "name": bot_instance.name,
+        "owner_id": redact_owner_id(bot_instance.owner_id),
+        "telegram_bot_id": bot_instance.telegram_bot_id,
+        "telegram_username": bot_instance.telegram_username,
+        "enabled": bot_instance.enabled,
+        "status": bot_instance.status,
+        "needs_restart": bot_instance.needs_restart,
+        "last_validated_at": bot_instance.last_validated_at.isoformat()
+        if bot_instance.last_validated_at is not None
+        else None,
+        "bot_token": redact_configured_secret(bot_instance.bot_token_encrypted),
+    }
+
+
+def _bot_instance_view(bot_instance: BotInstance) -> BotInstanceView:
+    return BotInstanceView(
+        id=bot_instance.id,
+        name=bot_instance.name,
+        owner_id_redacted=redact_owner_id(bot_instance.owner_id) or "",
+        telegram_bot_id=bot_instance.telegram_bot_id,
+        telegram_username=bot_instance.telegram_username,
+        enabled=bot_instance.enabled,
+        status=bot_instance.status,
+        needs_restart=bot_instance.needs_restart,
+        last_validated_at=bot_instance.last_validated_at,
+        secret=SecretState(
+            configured=bool(bot_instance.bot_token_encrypted),
+            updated_at=None,
+        ),
+    )
+
+
 async def enabled_bot_instance(session: AsyncSession) -> BotInstance | None:
     return await session.scalar(select(BotInstance).where(BotInstance.enabled.is_(True)))
+
+
+async def list_bot_instances(session: AsyncSession) -> tuple[BotInstanceView | None, list[BotInstanceView]]:
+    bot_instances = (
+        await session.scalars(select(BotInstance).order_by(BotInstance.id))
+    ).all()
+    active = next((bot_instance for bot_instance in bot_instances if bot_instance.enabled), None)
+    active_id = active.id if active is not None else None
+    return (
+        _bot_instance_view(active) if active is not None else None,
+        [
+            _bot_instance_view(bot_instance)
+            for bot_instance in bot_instances
+            if bot_instance.id != active_id
+        ],
+    )
+
+
+async def get_bot_instance(session: AsyncSession, bot_instance_id: int) -> BotInstance:
+    bot_instance = await session.get(BotInstance, bot_instance_id)
+    if bot_instance is None:
+        raise BotInstanceNotFoundError("bot instance not found")
+    return bot_instance
 
 
 async def load_bot_runtime_config(
@@ -182,6 +299,213 @@ async def load_bot_runtime_config(
         name=bot_instance.name,
         needs_restart=bot_instance.needs_restart,
     )
+
+
+async def fetch_bot_identity(bot_token: str) -> BotIdentity:
+    bot = create_bot(_BotTokenConfig(bot_token=bot_token))
+    try:
+        user = await bot.get_me()
+        return BotIdentity(
+            telegram_bot_id=user.id,
+            telegram_username=user.username,
+        )
+    finally:
+        await bot.session.close()
+
+
+async def validate_bot_instance(
+    session: AsyncSession,
+    *,
+    secret_service: SecretService,
+    bot_instance_id: int,
+    bot_token: str | None | object = _UNSET,
+) -> BotValidationResult:
+    bot_instance = await get_bot_instance(session, bot_instance_id)
+    normalized_token: str | None = None
+    if bot_token is not _UNSET and bot_token is not None:
+        normalized_token = bot_token.strip()
+
+    should_persist_result = normalized_token is None or normalized_token == ""
+    now = utcnow()
+    try:
+        token_to_validate = (
+            secret_service.decrypt(bot_instance.bot_token_encrypted)
+            if should_persist_result
+            else normalized_token
+        )
+        identity = await fetch_bot_identity(token_to_validate)
+    except SecretError:
+        result = BotValidationResult(
+            status="error",
+            last_validated_at=now,
+            telegram_bot_id=None,
+            telegram_username=None,
+            error_type="secret_error",
+            error_message="configured bot token could not be decrypted",
+        )
+    except (TokenValidationError, TelegramUnauthorizedError):
+        result = BotValidationResult(
+            status="invalid",
+            last_validated_at=now,
+            telegram_bot_id=None,
+            telegram_username=None,
+            error_type="invalid_token",
+            error_message="bot token is invalid",
+        )
+    except TelegramAPIError:
+        result = BotValidationResult(
+            status="error",
+            last_validated_at=now,
+            telegram_bot_id=None,
+            telegram_username=None,
+            error_type="telegram_error",
+            error_message="Telegram validation failed",
+        )
+    else:
+        result = BotValidationResult(
+            status="valid",
+            last_validated_at=now,
+            telegram_bot_id=identity.telegram_bot_id,
+            telegram_username=identity.telegram_username,
+        )
+
+    if should_persist_result:
+        bot_instance.status = result.status
+        bot_instance.last_validated_at = result.last_validated_at
+        bot_instance.telegram_bot_id = result.telegram_bot_id
+        bot_instance.telegram_username = result.telegram_username
+        bot_instance.updated_at = now
+        await session.flush()
+
+    return result
+
+
+async def update_bot_instance(
+    session: AsyncSession,
+    *,
+    secret_service: SecretService,
+    bot_instance_id: int,
+    name: str | None | object = _UNSET,
+    owner_id: int | None | object = _UNSET,
+    enabled: bool | None | object = _UNSET,
+    bot_token: str | None | object = _UNSET,
+    actor: str = "system",
+) -> BotInstanceView:
+    bot_instance = await get_bot_instance(session, bot_instance_id)
+    redacted_before = _bot_instance_redacted_dict(bot_instance)
+
+    changed_general = False
+    replaced_token = False
+    changed_enabled = False
+    disabled_bot_ids: list[int] = []
+
+    if name is not _UNSET and name is not None:
+        normalized_name = name.strip()
+        if normalized_name == "":
+            raise RuntimeConfigError("name must not be empty")
+        if normalized_name != bot_instance.name:
+            bot_instance.name = normalized_name
+            changed_general = True
+
+    if owner_id is not _UNSET and owner_id is not None:
+        if owner_id <= 0:
+            raise RuntimeConfigError("owner_id must be a positive integer")
+        if owner_id != bot_instance.owner_id:
+            bot_instance.owner_id = owner_id
+            bot_instance.needs_restart = True
+            changed_general = True
+
+    if bot_token is not _UNSET and bot_token is not None:
+        normalized_token = bot_token.strip()
+        if normalized_token != "":
+            bot_instance.bot_token_encrypted = secret_service.encrypt(normalized_token)
+            bot_instance.status = "unvalidated"
+            bot_instance.last_validated_at = None
+            bot_instance.telegram_bot_id = None
+            bot_instance.telegram_username = None
+            bot_instance.needs_restart = True
+            replaced_token = True
+
+    if enabled is not _UNSET and enabled is not None:
+        if enabled:
+            other_enabled = (
+                await session.scalars(
+                    select(BotInstance)
+                    .where(BotInstance.enabled.is_(True))
+                    .where(BotInstance.id != bot_instance.id)
+                    .order_by(BotInstance.id)
+                )
+            ).all()
+            now = utcnow()
+            for other_bot in other_enabled:
+                other_bot.enabled = False
+                other_bot.needs_restart = True
+                other_bot.updated_at = now
+                disabled_bot_ids.append(other_bot.id)
+            if other_enabled:
+                await session.flush()
+            if not bot_instance.enabled:
+                bot_instance.enabled = True
+                bot_instance.needs_restart = True
+                changed_enabled = True
+            elif disabled_bot_ids:
+                changed_enabled = True
+        elif bot_instance.enabled:
+            bot_instance.enabled = False
+            bot_instance.needs_restart = True
+            changed_enabled = True
+
+    if changed_general or replaced_token or changed_enabled:
+        bot_instance.updated_at = utcnow()
+        await session.flush()
+        redacted_after = _bot_instance_redacted_dict(bot_instance)
+        if replaced_token:
+            await create_audit_log(
+                session,
+                actor=actor,
+                action="replace_bot_token",
+                entity_type="bot_instance",
+                entity_id=str(bot_instance.id),
+                redacted_before={
+                    "bot_token": redacted_before["bot_token"],
+                    "needs_restart": redacted_before["needs_restart"],
+                },
+                redacted_after={
+                    "bot_token": redacted_after["bot_token"],
+                    "needs_restart": redacted_after["needs_restart"],
+                },
+            )
+        if changed_general:
+            await create_audit_log(
+                session,
+                actor=actor,
+                action="update_bot_instance",
+                entity_type="bot_instance",
+                entity_id=str(bot_instance.id),
+                redacted_before=redacted_before,
+                redacted_after=redacted_after,
+            )
+        if changed_enabled:
+            enabled_after = {
+                "enabled": redacted_after["enabled"],
+                "needs_restart": redacted_after["needs_restart"],
+            }
+            if disabled_bot_ids:
+                enabled_after["disabled_bot_ids"] = disabled_bot_ids
+            await create_audit_log(
+                session,
+                actor=actor,
+                action="enable_bot_instance" if bot_instance.enabled else "update_bot_instance",
+                entity_type="bot_instance",
+                entity_id=str(bot_instance.id),
+                redacted_before={
+                    "enabled": redacted_before["enabled"],
+                    "needs_restart": redacted_before["needs_restart"],
+                },
+                redacted_after=enabled_after,
+            )
+
+    return _bot_instance_view(bot_instance)
 
 
 async def create_llm_provider(

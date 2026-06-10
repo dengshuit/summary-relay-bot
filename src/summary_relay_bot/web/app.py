@@ -7,6 +7,7 @@ from summary_relay_bot.config import BootstrapConfig
 from summary_relay_bot.services.secrets import SecretService
 from summary_relay_bot.web.auth import require_admin_token
 from summary_relay_bot.web.errors import WebUnauthorizedError, unauthorized_exception_handler
+from summary_relay_bot.web.routes.bot import router as bot_router
 from summary_relay_bot.web.routes.dashboard import router as dashboard_router
 
 
@@ -25,6 +26,7 @@ def create_web_app(
     app.add_exception_handler(WebUnauthorizedError, unauthorized_exception_handler)
 
     api_router = APIRouter(prefix="/api", dependencies=[Depends(require_admin_token)])
+    api_router.include_router(bot_router)
     api_router.include_router(dashboard_router)
     app.include_router(api_router)
     return app
