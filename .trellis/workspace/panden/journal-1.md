@@ -38,3 +38,36 @@ Added the first backend foundation for the Web-managed configuration center: boo
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: Connect Telegram startup to runtime bot config
+
+**Date**: 2026-06-10
+**Task**: Connect Telegram startup to runtime bot config
+**Branch**: `master`
+
+### Summary
+
+Added bootstrap plus database runtime bot startup path, no-enabled-bot polling skip state, runtime secret redaction, and focused tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dca9b99` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
