@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from types import SimpleNamespace
 
@@ -14,6 +15,7 @@ from summary_relay_bot.main import (
     TELEGRAM_STARTUP_READY,
     build_runtime_app,
     load_telegram_startup_state,
+    run_runtime_app,
     start_polling,
 )
 from summary_relay_bot.services.runtime_config import create_bot_instance
@@ -166,6 +168,54 @@ async def test_build_runtime_app_without_enabled_bot_keeps_polling_resources_unb
         assert "admin-secret" not in str(runtime_app.safe_dict())
     finally:
         await runtime_app.engine.dispose()
+
+
+async def test_run_runtime_app_without_polling_starts_web_api_and_disposes_engine(monkeypatch) -> None:
+    observed: dict[str, object] = {}
+    engine = FakeEngine()
+    runtime_app = SimpleNamespace(
+        resources=None,
+        engine=engine,
+    )
+
+    async def fake_start_web_api(observed_runtime_app) -> None:
+        observed["web_runtime_app"] = observed_runtime_app
+
+    monkeypatch.setattr("summary_relay_bot.main.start_web_api", fake_start_web_api)
+
+    await run_runtime_app(runtime_app)
+
+    assert observed["web_runtime_app"] is runtime_app
+    assert engine.disposed is True
+
+
+async def test_run_runtime_app_with_polling_runs_web_api_and_polling_in_parallel(monkeypatch) -> None:
+    observed: dict[str, object] = {}
+    web_started = asyncio.Event()
+    engine = FakeEngine()
+    resources = SimpleNamespace(engine=engine)
+    runtime_app = SimpleNamespace(
+        resources=resources,
+        engine=engine,
+    )
+
+    async def fake_start_web_api(observed_runtime_app) -> None:
+        observed["web_runtime_app"] = observed_runtime_app
+        web_started.set()
+        await asyncio.Event().wait()
+
+    async def fake_start_polling(observed_resources) -> None:
+        await web_started.wait()
+        observed["polling_resources"] = observed_resources
+
+    monkeypatch.setattr("summary_relay_bot.main.start_web_api", fake_start_web_api)
+    monkeypatch.setattr("summary_relay_bot.main.start_polling", fake_start_polling)
+
+    await run_runtime_app(runtime_app)
+
+    assert observed["web_runtime_app"] is runtime_app
+    assert observed["polling_resources"] is resources
+    assert engine.disposed is True
 
 
 async def test_build_runtime_app_uses_database_token_and_owner_for_bot_and_handlers(

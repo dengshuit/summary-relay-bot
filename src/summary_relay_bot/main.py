@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from typing import Mapping, NoReturn
 
 from aiogram import Bot, Dispatcher
+from fastapi import FastAPI
+import uvicorn
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from summary_relay_bot.config import AppConfig, BootstrapConfig, ConfigError
@@ -17,6 +19,7 @@ from summary_relay_bot.services.runtime_config import BotRuntimeConfig, load_bot
 from summary_relay_bot.services.secrets import SecretError, SecretService
 from summary_relay_bot.telegram.bot import create_bot, ensure_polling_delivery
 from summary_relay_bot.telegram.commands import setup_command_menus
+from summary_relay_bot.web.app import create_web_app
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +70,7 @@ class RuntimeApp:
     telegram_startup: TelegramStartupState
     engine: AsyncEngine = field(repr=False)
     session_factory: async_sessionmaker[AsyncSession] = field(repr=False)
+    web_app: FastAPI = field(repr=False)
     resources: AppResources | None = field(default=None, repr=False)
 
     def safe_dict(self) -> dict[str, object]:
@@ -154,12 +158,19 @@ async def build_runtime_app(
             session_factory,
             secret_service=secret_service,
         )
+        web_app = create_web_app(
+            bootstrap_config=bootstrap_config,
+            session_factory=session_factory,
+            secret_service=secret_service,
+            telegram_startup=telegram_startup.safe_dict(),
+        )
         if not telegram_startup.should_start_polling:
             return RuntimeApp(
                 bootstrap_config=bootstrap_config,
                 telegram_startup=telegram_startup,
                 engine=engine,
                 session_factory=session_factory,
+                web_app=web_app,
             )
 
         bot_runtime_config = telegram_startup.bot_runtime_config
@@ -183,6 +194,7 @@ async def build_runtime_app(
             telegram_startup=telegram_startup,
             engine=engine,
             session_factory=session_factory,
+            web_app=web_app,
             resources=resources,
         )
     except Exception:
@@ -202,6 +214,44 @@ async def start_polling(resources: AppResources) -> None:
         await resources.engine.dispose()
 
 
+async def start_web_api(runtime_app: RuntimeApp) -> None:
+    config = uvicorn.Config(
+        runtime_app.web_app,
+        host=runtime_app.bootstrap_config.webui_host,
+        port=runtime_app.bootstrap_config.webui_port,
+        log_level="info",
+    )
+    server = uvicorn.Server(config)
+    await server.serve()
+
+
+async def run_runtime_app(runtime_app: RuntimeApp) -> None:
+    if runtime_app.resources is None:
+        try:
+            await start_web_api(runtime_app)
+        finally:
+            await runtime_app.engine.dispose()
+        return
+
+    web_task = asyncio.create_task(start_web_api(runtime_app), name="web-api")
+    polling_task = asyncio.create_task(start_polling(runtime_app.resources), name="telegram-polling")
+    tasks = {web_task, polling_task}
+    try:
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        for task in done:
+            task.result()
+    finally:
+        unfinished = [task for task in tasks if not task.done()]
+        for task in unfinished:
+            task.cancel()
+        if unfinished:
+            await asyncio.gather(*unfinished, return_exceptions=True)
+        await runtime_app.engine.dispose()
+
+
 async def amain() -> None:
     logging.basicConfig(level=logging.INFO)
     try:
@@ -212,11 +262,7 @@ async def amain() -> None:
 
     logger.info("Starting Summary Relay Bot with bootstrap config: %s", bootstrap_config.safe_dict())
     logger.info("Telegram polling startup state: %s", runtime_app.telegram_startup.safe_dict())
-    if runtime_app.resources is None:
-        await runtime_app.engine.dispose()
-        return
-
-    await start_polling(runtime_app.resources)
+    await run_runtime_app(runtime_app)
 
 
 def main() -> NoReturn:
