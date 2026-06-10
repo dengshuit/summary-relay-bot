@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 
@@ -51,3 +52,14 @@ async def unauthorized_exception_handler(
     exc: WebUnauthorizedError,
 ) -> JSONResponse:
     return unauthorized_response()
+
+
+async def request_validation_exception_handler(
+    request: Request,
+    exc: RequestValidationError,
+) -> JSONResponse:
+    return api_error_response(
+        status_code=400,
+        code="validation_error",
+        message="request validation failed",
+    )

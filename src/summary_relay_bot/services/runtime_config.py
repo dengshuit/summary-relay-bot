@@ -32,7 +32,16 @@ class BotInstanceNotFoundError(RuntimeConfigError):
     pass
 
 
+class LLMProviderNotFoundError(RuntimeConfigError):
+    pass
+
+
+class SummaryProfileNotFoundError(RuntimeConfigError):
+    pass
+
+
 SUPPORTED_LLM_PROVIDER_TYPES = frozenset({"anthropic", "openai", "openai_compatible"})
+VALIDATION_STATUSES = frozenset({"unvalidated", "valid", "invalid", "error"})
 _UNSET = object()
 
 
@@ -101,6 +110,52 @@ class BotValidationResult:
     telegram_username: str | None
     error_type: str | None = None
     error_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LLMProviderView:
+    id: int
+    name: str
+    provider_type: str
+    base_url: str | None
+    default_model: str
+    timeout_seconds: int
+    max_retries: int
+    enabled: bool
+    status: str
+    last_validated_at: datetime | None
+    secret: SecretState
+
+
+@dataclass(frozen=True, slots=True)
+class LLMProviderValidationResult:
+    status: str
+    last_validated_at: datetime
+    error_type: str | None = None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SummaryProfileProviderView:
+    id: int
+    name: str
+    provider_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class SummaryProfileView:
+    id: int
+    name: str
+    llm_provider: SummaryProfileProviderView
+    model: str | None
+    effective_model: str
+    uses_provider_default_model: bool
+    prompt_version: str
+    system_prompt: str | None
+    temperature: float | None
+    max_output_tokens: int | None
+    enabled: bool
+    is_default: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -508,6 +563,146 @@ async def update_bot_instance(
     return _bot_instance_view(bot_instance)
 
 
+def _normalize_required_text(value: str, field_name: str) -> str:
+    normalized = value.strip()
+    if normalized == "":
+        raise RuntimeConfigError(f"{field_name} must not be empty")
+    return normalized
+
+
+def _normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _validate_llm_provider_fields(
+    *,
+    provider_type: str,
+    timeout_seconds: int,
+    max_retries: int,
+) -> None:
+    if provider_type not in SUPPORTED_LLM_PROVIDER_TYPES:
+        raise RuntimeConfigError("provider_type is not supported")
+    if timeout_seconds <= 0:
+        raise RuntimeConfigError("timeout_seconds must be positive")
+    if max_retries < 0:
+        raise RuntimeConfigError("max_retries must be non-negative")
+
+
+def _validate_summary_profile_fields(
+    *,
+    temperature: float | None,
+    max_output_tokens: int | None,
+) -> None:
+    if temperature is not None and not 0 <= temperature <= 2:
+        raise RuntimeConfigError("temperature must be between 0 and 2")
+    if max_output_tokens is not None and max_output_tokens <= 0:
+        raise RuntimeConfigError("max_output_tokens must be positive")
+
+
+def _llm_provider_redacted_dict(provider: LLMProvider) -> dict[str, Any]:
+    return {
+        "id": provider.id,
+        "name": provider.name,
+        "provider_type": provider.provider_type,
+        "base_url": provider.base_url,
+        "api_key": redact_configured_secret(provider.api_key_encrypted),
+        "default_model": provider.default_model,
+        "timeout_seconds": provider.timeout_seconds,
+        "max_retries": provider.max_retries,
+        "enabled": provider.enabled,
+        "status": provider.status,
+        "last_validated_at": provider.last_validated_at.isoformat()
+        if provider.last_validated_at is not None
+        else None,
+    }
+
+
+def _llm_provider_view(provider: LLMProvider) -> LLMProviderView:
+    return LLMProviderView(
+        id=provider.id,
+        name=provider.name,
+        provider_type=provider.provider_type,
+        base_url=provider.base_url,
+        default_model=provider.default_model,
+        timeout_seconds=provider.timeout_seconds,
+        max_retries=provider.max_retries,
+        enabled=provider.enabled,
+        status=provider.status,
+        last_validated_at=provider.last_validated_at,
+        secret=SecretState(
+            configured=bool(provider.api_key_encrypted),
+            updated_at=None,
+        ),
+    )
+
+
+def _summary_profile_redacted_dict(profile: SummaryProfile) -> dict[str, Any]:
+    return {
+        "id": profile.id,
+        "name": profile.name,
+        "llm_provider_id": profile.llm_provider_id,
+        "model": profile.model,
+        "prompt_version": profile.prompt_version,
+        "system_prompt": profile.system_prompt,
+        "temperature": profile.temperature,
+        "max_output_tokens": profile.max_output_tokens,
+        "enabled": profile.enabled,
+        "is_default": profile.is_default,
+    }
+
+
+def _summary_profile_view(profile: SummaryProfile) -> SummaryProfileView:
+    provider = profile.llm_provider
+    effective_model = profile.model or provider.default_model
+    return SummaryProfileView(
+        id=profile.id,
+        name=profile.name,
+        llm_provider=SummaryProfileProviderView(
+            id=provider.id,
+            name=provider.name,
+            provider_type=provider.provider_type,
+        ),
+        model=profile.model,
+        effective_model=effective_model,
+        uses_provider_default_model=profile.model is None,
+        prompt_version=profile.prompt_version,
+        system_prompt=profile.system_prompt,
+        temperature=profile.temperature,
+        max_output_tokens=profile.max_output_tokens,
+        enabled=profile.enabled,
+        is_default=profile.is_default,
+    )
+
+
+async def list_llm_providers(
+    session: AsyncSession,
+    *,
+    enabled: bool | None = None,
+    status: str | None = None,
+) -> list[LLMProviderView]:
+    if status is not None and status not in VALIDATION_STATUSES:
+        raise RuntimeConfigError("status is not supported")
+
+    statement = select(LLMProvider).order_by(LLMProvider.id)
+    if enabled is not None:
+        statement = statement.where(LLMProvider.enabled.is_(enabled))
+    if status is not None:
+        statement = statement.where(LLMProvider.status == status)
+
+    providers = (await session.scalars(statement)).all()
+    return [_llm_provider_view(provider) for provider in providers]
+
+
+async def get_llm_provider(session: AsyncSession, provider_id: int) -> LLMProvider:
+    provider = await session.get(LLMProvider, provider_id)
+    if provider is None:
+        raise LLMProviderNotFoundError("llm provider not found")
+    return provider
+
+
 async def create_llm_provider(
     session: AsyncSession,
     *,
@@ -522,19 +717,23 @@ async def create_llm_provider(
     enabled: bool = True,
     actor: str = "system",
 ) -> LLMProvider:
-    if provider_type not in SUPPORTED_LLM_PROVIDER_TYPES:
-        raise RuntimeConfigError("provider_type is not supported")
-    if timeout_seconds <= 0:
-        raise RuntimeConfigError("timeout_seconds must be positive")
-    if max_retries < 0:
-        raise RuntimeConfigError("max_retries must be non-negative")
+    normalized_name = _normalize_required_text(name, "name")
+    normalized_provider_type = _normalize_required_text(provider_type, "provider_type")
+    normalized_api_key = _normalize_required_text(api_key, "api_key")
+    normalized_default_model = _normalize_required_text(default_model, "default_model")
+    normalized_base_url = _normalize_optional_text(base_url)
+    _validate_llm_provider_fields(
+        provider_type=normalized_provider_type,
+        timeout_seconds=timeout_seconds,
+        max_retries=max_retries,
+    )
 
     provider = LLMProvider(
-        name=name,
-        provider_type=provider_type,
-        base_url=base_url,
-        api_key_encrypted=secret_service.encrypt(api_key),
-        default_model=default_model,
+        name=normalized_name,
+        provider_type=normalized_provider_type,
+        base_url=normalized_base_url,
+        api_key_encrypted=secret_service.encrypt(normalized_api_key),
+        default_model=normalized_default_model,
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
         enabled=enabled,
@@ -558,6 +757,233 @@ async def create_llm_provider(
     return provider
 
 
+async def update_llm_provider(
+    session: AsyncSession,
+    *,
+    secret_service: SecretService,
+    provider_id: int,
+    name: str | None | object = _UNSET,
+    provider_type: str | None | object = _UNSET,
+    base_url: str | None | object = _UNSET,
+    api_key: str | None | object = _UNSET,
+    default_model: str | None | object = _UNSET,
+    timeout_seconds: int | None | object = _UNSET,
+    max_retries: int | None | object = _UNSET,
+    enabled: bool | None | object = _UNSET,
+    actor: str = "system",
+) -> LLMProviderView:
+    provider = await get_llm_provider(session, provider_id)
+    redacted_before = _llm_provider_redacted_dict(provider)
+
+    changed_general = False
+    replaced_key = False
+    should_reset_validation = False
+
+    if name is not _UNSET and name is not None:
+        normalized_name = _normalize_required_text(name, "name")
+        if normalized_name != provider.name:
+            provider.name = normalized_name
+            changed_general = True
+
+    if provider_type is not _UNSET and provider_type is not None:
+        normalized_provider_type = _normalize_required_text(provider_type, "provider_type")
+        if normalized_provider_type not in SUPPORTED_LLM_PROVIDER_TYPES:
+            raise RuntimeConfigError("provider_type is not supported")
+        if normalized_provider_type != provider.provider_type:
+            provider.provider_type = normalized_provider_type
+            changed_general = True
+            should_reset_validation = True
+
+    if base_url is not _UNSET:
+        normalized_base_url = _normalize_optional_text(base_url)
+        if normalized_base_url != provider.base_url:
+            provider.base_url = normalized_base_url
+            changed_general = True
+            should_reset_validation = True
+
+    if default_model is not _UNSET and default_model is not None:
+        normalized_default_model = _normalize_required_text(default_model, "default_model")
+        if normalized_default_model != provider.default_model:
+            provider.default_model = normalized_default_model
+            changed_general = True
+            should_reset_validation = True
+
+    if timeout_seconds is not _UNSET and timeout_seconds is not None:
+        if timeout_seconds <= 0:
+            raise RuntimeConfigError("timeout_seconds must be positive")
+        if timeout_seconds != provider.timeout_seconds:
+            provider.timeout_seconds = timeout_seconds
+            changed_general = True
+            should_reset_validation = True
+
+    if max_retries is not _UNSET and max_retries is not None:
+        if max_retries < 0:
+            raise RuntimeConfigError("max_retries must be non-negative")
+        if max_retries != provider.max_retries:
+            provider.max_retries = max_retries
+            changed_general = True
+
+    if enabled is not _UNSET and enabled is not None and enabled != provider.enabled:
+        provider.enabled = enabled
+        changed_general = True
+
+    if api_key is not _UNSET and api_key is not None:
+        normalized_api_key = api_key.strip()
+        if normalized_api_key != "":
+            provider.api_key_encrypted = secret_service.encrypt(normalized_api_key)
+            replaced_key = True
+            should_reset_validation = True
+
+    if should_reset_validation:
+        provider.status = "unvalidated"
+        provider.last_validated_at = None
+
+    if changed_general or replaced_key:
+        provider.updated_at = utcnow()
+        await session.flush()
+        redacted_after = _llm_provider_redacted_dict(provider)
+        if replaced_key:
+            await create_audit_log(
+                session,
+                actor=actor,
+                action="replace_llm_api_key",
+                entity_type="llm_provider",
+                entity_id=str(provider.id),
+                redacted_before={
+                    "api_key": redacted_before["api_key"],
+                    "status": redacted_before["status"],
+                    "last_validated_at": redacted_before["last_validated_at"],
+                },
+                redacted_after={
+                    "api_key": redacted_after["api_key"],
+                    "status": redacted_after["status"],
+                    "last_validated_at": redacted_after["last_validated_at"],
+                },
+            )
+        if changed_general:
+            await create_audit_log(
+                session,
+                actor=actor,
+                action="update_llm_provider",
+                entity_type="llm_provider",
+                entity_id=str(provider.id),
+                redacted_before=redacted_before,
+                redacted_after=redacted_after,
+            )
+
+    return _llm_provider_view(provider)
+
+
+class LLMProviderValidationError(RuntimeConfigError):
+    def __init__(self, error_type: str, message: str, *, status: str = "invalid") -> None:
+        super().__init__(message)
+        self.error_type = error_type
+        self.status = status
+
+
+async def probe_llm_provider(provider_config: LLMProviderRuntimeConfig) -> None:
+    if provider_config.provider_type == "openai_compatible" and not provider_config.base_url:
+        raise LLMProviderValidationError(
+            "base_url_required",
+            "base_url is required for openai_compatible provider",
+        )
+
+
+async def validate_llm_provider(
+    session: AsyncSession,
+    *,
+    secret_service: SecretService,
+    provider_id: int,
+) -> LLMProviderValidationResult:
+    provider = await get_llm_provider(session, provider_id)
+    now = utcnow()
+    try:
+        provider_config = LLMProviderRuntimeConfig(
+            llm_provider_id=provider.id,
+            provider_type=provider.provider_type,
+            api_key=secret_service.decrypt(provider.api_key_encrypted),
+            default_model=provider.default_model,
+            timeout_seconds=provider.timeout_seconds,
+            max_retries=provider.max_retries,
+            base_url=provider.base_url,
+        )
+        await probe_llm_provider(provider_config)
+    except SecretError:
+        result = LLMProviderValidationResult(
+            status="error",
+            last_validated_at=now,
+            error_type="secret_error",
+            error_message="configured LLM API key could not be decrypted",
+        )
+    except LLMProviderValidationError as exc:
+        result = LLMProviderValidationResult(
+            status=exc.status,
+            last_validated_at=now,
+            error_type=exc.error_type,
+            error_message=str(exc),
+        )
+    except Exception:
+        result = LLMProviderValidationResult(
+            status="error",
+            last_validated_at=now,
+            error_type="llm_provider_error",
+            error_message="LLM provider validation failed",
+        )
+    else:
+        result = LLMProviderValidationResult(
+            status="valid",
+            last_validated_at=now,
+        )
+
+    provider.status = result.status
+    provider.last_validated_at = result.last_validated_at
+    provider.updated_at = now
+    await session.flush()
+    return result
+
+
+async def list_summary_profiles(session: AsyncSession) -> list[SummaryProfileView]:
+    profiles = (
+        await session.scalars(
+            select(SummaryProfile)
+            .options(selectinload(SummaryProfile.llm_provider))
+            .order_by(SummaryProfile.id)
+        )
+    ).all()
+    return [_summary_profile_view(profile) for profile in profiles]
+
+
+async def get_summary_profile(session: AsyncSession, profile_id: int) -> SummaryProfile:
+    profile = await session.get(
+        SummaryProfile,
+        profile_id,
+        options=[selectinload(SummaryProfile.llm_provider)],
+    )
+    if profile is None:
+        raise SummaryProfileNotFoundError("summary profile not found")
+    return profile
+
+
+async def _set_default_summary_profile(
+    session: AsyncSession,
+    profile: SummaryProfile,
+    *,
+    now: datetime | None = None,
+) -> list[int]:
+    current_default = await default_summary_profile(session)
+    disabled_profile_ids: list[int] = []
+    timestamp = now or utcnow()
+    if current_default is not None and current_default.id != profile.id:
+        current_default.is_default = False
+        current_default.updated_at = timestamp
+        disabled_profile_ids.append(current_default.id)
+        await session.flush()
+    if not profile.is_default:
+        profile.is_default = True
+        profile.updated_at = timestamp
+    return disabled_profile_ids
+
+
 async def create_summary_profile(
     session: AsyncSession,
     *,
@@ -572,44 +998,172 @@ async def create_summary_profile(
     is_default: bool = False,
     actor: str = "system",
 ) -> SummaryProfile:
-    if temperature is not None and not 0 <= temperature <= 2:
-        raise RuntimeConfigError("temperature must be between 0 and 2")
-    if max_output_tokens is not None and max_output_tokens <= 0:
-        raise RuntimeConfigError("max_output_tokens must be positive")
-    if is_default:
-        existing_default = await default_summary_profile(session)
-        if existing_default is not None:
-            raise RuntimeConfigError("only one summary profile can be default")
+    normalized_name = _normalize_required_text(name, "name")
+    normalized_model = _normalize_optional_text(model)
+    normalized_prompt_version = _normalize_required_text(prompt_version, "prompt_version")
+    _validate_summary_profile_fields(
+        temperature=temperature,
+        max_output_tokens=max_output_tokens,
+    )
 
     profile = SummaryProfile(
-        name=name,
+        name=normalized_name,
         llm_provider=llm_provider,
-        model=model,
-        prompt_version=prompt_version,
+        model=normalized_model,
+        prompt_version=normalized_prompt_version,
         system_prompt=system_prompt,
         temperature=temperature,
         max_output_tokens=max_output_tokens,
         enabled=enabled,
-        is_default=is_default,
+        is_default=False,
     )
     session.add(profile)
+    replaced_default_profile_ids: list[int] = []
+    if is_default:
+        replaced_default_profile_ids = await _set_default_summary_profile(session, profile)
     await session.flush()
+    redacted_after = {
+        "name": profile.name,
+        "llm_provider_id": profile.llm_provider_id,
+        "model": profile.model,
+        "prompt_version": profile.prompt_version,
+        "enabled": profile.enabled,
+        "is_default": profile.is_default,
+    }
+    if replaced_default_profile_ids:
+        redacted_after["replaced_default_profile_ids"] = replaced_default_profile_ids
     await create_audit_log(
         session,
         actor=actor,
         action="create_summary_profile",
         entity_type="summary_profile",
         entity_id=str(profile.id),
-        redacted_after={
-            "name": profile.name,
-            "llm_provider_id": profile.llm_provider_id,
-            "model": profile.model,
-            "prompt_version": profile.prompt_version,
-            "enabled": profile.enabled,
-            "is_default": profile.is_default,
-        },
+        redacted_after=redacted_after,
     )
     return profile
+
+
+async def update_summary_profile(
+    session: AsyncSession,
+    *,
+    profile_id: int,
+    name: str | None | object = _UNSET,
+    llm_provider_id: int | None | object = _UNSET,
+    model: str | None | object = _UNSET,
+    prompt_version: str | None | object = _UNSET,
+    system_prompt: str | None | object = _UNSET,
+    temperature: float | None | object = _UNSET,
+    max_output_tokens: int | None | object = _UNSET,
+    enabled: bool | None | object = _UNSET,
+    is_default: bool | None | object = _UNSET,
+    actor: str = "system",
+) -> SummaryProfileView:
+    profile = await get_summary_profile(session, profile_id)
+    redacted_before = _summary_profile_redacted_dict(profile)
+    changed = False
+    replaced_default_profile_ids: list[int] = []
+
+    if name is not _UNSET and name is not None:
+        normalized_name = _normalize_required_text(name, "name")
+        if normalized_name != profile.name:
+            profile.name = normalized_name
+            changed = True
+
+    if llm_provider_id is not _UNSET and llm_provider_id is not None:
+        llm_provider = await get_llm_provider(session, llm_provider_id)
+        if llm_provider.id != profile.llm_provider_id:
+            profile.llm_provider = llm_provider
+            changed = True
+
+    if model is not _UNSET:
+        normalized_model = _normalize_optional_text(model)
+        if normalized_model != profile.model:
+            profile.model = normalized_model
+            changed = True
+
+    if prompt_version is not _UNSET and prompt_version is not None:
+        normalized_prompt_version = _normalize_required_text(prompt_version, "prompt_version")
+        if normalized_prompt_version != profile.prompt_version:
+            profile.prompt_version = normalized_prompt_version
+            changed = True
+
+    if system_prompt is not _UNSET and system_prompt != profile.system_prompt:
+        profile.system_prompt = system_prompt
+        changed = True
+
+    next_temperature = profile.temperature if temperature is _UNSET else temperature
+    next_max_output_tokens = (
+        profile.max_output_tokens if max_output_tokens is _UNSET else max_output_tokens
+    )
+    _validate_summary_profile_fields(
+        temperature=next_temperature,
+        max_output_tokens=next_max_output_tokens,
+    )
+    if temperature is not _UNSET and temperature != profile.temperature:
+        profile.temperature = temperature
+        changed = True
+    if max_output_tokens is not _UNSET and max_output_tokens != profile.max_output_tokens:
+        profile.max_output_tokens = max_output_tokens
+        changed = True
+
+    if enabled is not _UNSET and enabled is not None and enabled != profile.enabled:
+        profile.enabled = enabled
+        changed = True
+
+    if is_default is not _UNSET and is_default is not None:
+        if is_default:
+            replaced_default_profile_ids = await _set_default_summary_profile(session, profile)
+            if not redacted_before["is_default"] or replaced_default_profile_ids:
+                changed = True
+        elif profile.is_default:
+            profile.is_default = False
+            changed = True
+
+    if changed:
+        profile.updated_at = utcnow()
+        await session.flush()
+        await session.refresh(profile, attribute_names=["llm_provider"])
+        redacted_after = _summary_profile_redacted_dict(profile)
+        if replaced_default_profile_ids:
+            redacted_after["replaced_default_profile_ids"] = replaced_default_profile_ids
+        await create_audit_log(
+            session,
+            actor=actor,
+            action="update_summary_profile",
+            entity_type="summary_profile",
+            entity_id=str(profile.id),
+            redacted_before=redacted_before,
+            redacted_after=redacted_after,
+        )
+
+    return _summary_profile_view(profile)
+
+
+async def set_default_summary_profile(
+    session: AsyncSession,
+    *,
+    profile_id: int,
+    actor: str = "system",
+) -> SummaryProfileView:
+    profile = await get_summary_profile(session, profile_id)
+    redacted_before = _summary_profile_redacted_dict(profile)
+    replaced_default_profile_ids = await _set_default_summary_profile(session, profile)
+    await session.flush()
+    await session.refresh(profile, attribute_names=["llm_provider"])
+    redacted_after = _summary_profile_redacted_dict(profile)
+    if replaced_default_profile_ids:
+        redacted_after["replaced_default_profile_ids"] = replaced_default_profile_ids
+    if not redacted_before["is_default"] or replaced_default_profile_ids:
+        await create_audit_log(
+            session,
+            actor=actor,
+            action="set_default_summary_profile",
+            entity_type="summary_profile",
+            entity_id=str(profile.id),
+            redacted_before=redacted_before,
+            redacted_after=redacted_after,
+        )
+    return _summary_profile_view(profile)
 
 
 async def default_summary_profile(session: AsyncSession) -> SummaryProfile | None:

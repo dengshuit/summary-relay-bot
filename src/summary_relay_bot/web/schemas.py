@@ -50,6 +50,102 @@ class BotValidateResponse(BaseModel):
     error_message: str | None = None
 
 
+class LLMProviderSchema(BaseModel):
+    id: int
+    name: str
+    provider_type: str
+    base_url: str | None = None
+    default_model: str
+    timeout_seconds: int
+    max_retries: int
+    enabled: bool
+    status: str
+    last_validated_at: datetime | None = None
+    secret: SecretStateSchema
+
+
+class LLMProviderListResponse(BaseModel):
+    items: list[LLMProviderSchema]
+
+
+class LLMProviderCreateRequest(BaseModel):
+    name: str
+    provider_type: str
+    base_url: str | None = None
+    api_key: str
+    default_model: str
+    timeout_seconds: int = 30
+    max_retries: int = 2
+    enabled: bool = True
+
+
+class LLMProviderUpdateRequest(BaseModel):
+    name: str | None = None
+    provider_type: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    default_model: str | None = None
+    timeout_seconds: int | None = None
+    max_retries: int | None = None
+    enabled: bool | None = None
+
+
+class LLMProviderTestResponse(BaseModel):
+    status: str
+    last_validated_at: datetime
+    error_type: str | None = None
+    error_message: str | None = None
+
+
+class SummaryProfileProviderSchema(BaseModel):
+    id: int
+    name: str
+    provider_type: str
+
+
+class SummaryProfileSchema(BaseModel):
+    id: int
+    name: str
+    llm_provider: SummaryProfileProviderSchema
+    model: str | None = None
+    effective_model: str
+    uses_provider_default_model: bool
+    prompt_version: str
+    system_prompt: str | None = None
+    temperature: float | None = None
+    max_output_tokens: int | None = None
+    enabled: bool
+    is_default: bool
+
+
+class SummaryProfileListResponse(BaseModel):
+    items: list[SummaryProfileSchema]
+
+
+class SummaryProfileCreateRequest(BaseModel):
+    name: str
+    llm_provider_id: int
+    model: str | None = None
+    prompt_version: str = "v1"
+    system_prompt: str | None = None
+    temperature: float | None = None
+    max_output_tokens: int | None = None
+    enabled: bool = True
+    is_default: bool = False
+
+
+class SummaryProfileUpdateRequest(BaseModel):
+    name: str | None = None
+    llm_provider_id: int | None = None
+    model: str | None = None
+    prompt_version: str | None = None
+    system_prompt: str | None = None
+    temperature: float | None = None
+    max_output_tokens: int | None = None
+    enabled: bool | None = None
+    is_default: bool | None = None
+
+
 class TelegramStartupSchema(BaseModel):
     status: str
     detail: str | None = None
