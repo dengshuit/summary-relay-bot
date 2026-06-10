@@ -71,3 +71,36 @@ Added bootstrap plus database runtime bot startup path, no-enabled-bot polling s
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Batch 01 Web API auth
+
+**Date**: 2026-06-10
+**Task**: Batch 01 Web API auth
+**Branch**: `master`
+
+### Summary
+
+Implemented FastAPI Web API skeleton, bearer-token authentication, minimal dashboard endpoint, startup integration, and Batch 01 tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b98a8e3` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
