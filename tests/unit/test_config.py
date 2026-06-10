@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from summary_relay_bot.config import AppConfig, ConfigError
+from summary_relay_bot.config import AppConfig, BootstrapConfig, ConfigError
 
 
 def valid_env() -> dict[str, str]:
@@ -11,6 +11,14 @@ def valid_env() -> dict[str, str]:
         "OWNER_ID": "1001",
         "DATABASE_URL": "postgresql+asyncpg://user:db-secret@localhost/db",
         "LLM_API_KEY": "llm-secret",
+    }
+
+
+def valid_bootstrap_env() -> dict[str, str]:
+    return {
+        "DATABASE_URL": "postgresql+asyncpg://user:db-secret@localhost/db",
+        "SETTINGS_ENCRYPTION_KEY": "secret-encryption-key",
+        "WEBUI_ADMIN_TOKEN": "secret-admin-token",
     }
 
 
@@ -56,3 +64,27 @@ def test_defaults_choose_polling_safe_anthropic_summary_settings() -> None:
     assert config.llm_provider == "anthropic"
     assert config.llm_model == "claude-opus-4-8"
     assert config.summary_prompt_version == "v1"
+
+
+def test_bootstrap_config_reads_only_startup_settings_and_redacts_secrets() -> None:
+    config = BootstrapConfig.from_env(valid_bootstrap_env())
+
+    rendered = repr(config)
+    safe = config.safe_dict()
+
+    assert config.webui_host == "127.0.0.1"
+    assert config.webui_port == 8080
+    assert "db-secret" not in rendered
+    assert "secret-encryption-key" not in rendered
+    assert "secret-admin-token" not in rendered
+    assert "<redacted>" in str(safe["database_url"])
+    assert safe["settings_encryption_key"] == "<redacted>"
+    assert safe["webui_admin_token"] == "<redacted>"
+
+
+def test_bootstrap_config_requires_bootstrap_secrets() -> None:
+    env = valid_bootstrap_env()
+    del env["SETTINGS_ENCRYPTION_KEY"]
+
+    with pytest.raises(ConfigError, match="SETTINGS_ENCRYPTION_KEY"):
+        BootstrapConfig.from_env(env)

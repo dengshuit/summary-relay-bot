@@ -9,9 +9,10 @@ class ConfigError(ValueError):
     """Raised when required configuration is missing or invalid."""
 
 
-_SECRET_FIELD_NAMES = {"bot_token", "database_url", "llm_api_key"}
+_SECRET_FIELD_NAMES = {"bot_token", "database_url", "llm_api_key", "settings_encryption_key", "webui_admin_token"}
 _SENSITIVE_NUMERIC_FIELD_NAMES = {"owner_id"}
 _REQUIRED_ENV = ("BOT_TOKEN", "OWNER_ID", "DATABASE_URL", "LLM_API_KEY")
+_REQUIRED_BOOTSTRAP_ENV = ("DATABASE_URL", "SETTINGS_ENCRYPTION_KEY", "WEBUI_ADMIN_TOKEN")
 
 
 def _parse_bool(value: str | None, *, default: bool) -> bool:
@@ -62,6 +63,45 @@ def redact_database_url(value: str) -> str:
     userinfo = f"{username}:<redacted>@" if username else "<redacted>@"
     netloc = f"{userinfo}{host}{port}"
     return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
+
+
+@dataclass(frozen=True, slots=True)
+class BootstrapConfig:
+    database_url: str
+    settings_encryption_key: str
+    webui_admin_token: str
+    webui_host: str = "127.0.0.1"
+    webui_port: int = 8080
+
+    @classmethod
+    def from_env(cls, env: Mapping[str, str]) -> "BootstrapConfig":
+        missing = [name for name in _REQUIRED_BOOTSTRAP_ENV if not env.get(name)]
+        if missing:
+            raise ConfigError(f"missing required bootstrap configuration: {', '.join(missing)}")
+
+        return cls(
+            database_url=_require(env, "DATABASE_URL"),
+            settings_encryption_key=_require(env, "SETTINGS_ENCRYPTION_KEY"),
+            webui_admin_token=_require(env, "WEBUI_ADMIN_TOKEN"),
+            webui_host=env.get("WEBUI_HOST", "127.0.0.1").strip() or "127.0.0.1",
+            webui_port=_parse_int(env.get("WEBUI_PORT", "8080"), "WEBUI_PORT", minimum=1),
+        )
+
+    def safe_dict(self) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for field in fields(self):
+            value = getattr(self, field.name)
+            if field.name == "database_url":
+                result[field.name] = redact_database_url(str(value))
+            elif field.name in _SECRET_FIELD_NAMES:
+                result[field.name] = redact_secret(str(value))
+            else:
+                result[field.name] = value
+        return result
+
+    def __repr__(self) -> str:
+        args = ", ".join(f"{key}={value!r}" for key, value in self.safe_dict().items())
+        return f"BootstrapConfig({args})"
 
 
 @dataclass(frozen=True, slots=True)

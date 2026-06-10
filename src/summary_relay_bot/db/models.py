@@ -10,6 +10,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Float,
     Index,
     Integer,
     String,
@@ -62,6 +63,10 @@ class GroupChat(Base):
 
     messages: Mapped[list["GroupMessage"]] = relationship(back_populates="group")
     summary_state: Mapped["SummaryState | None"] = relationship(back_populates="group", uselist=False)
+    summary_settings: Mapped["GroupSummarySettings | None"] = relationship(
+        back_populates="group",
+        uselist=False,
+    )
     summary_jobs: Mapped[list["SummaryJob"]] = relationship(back_populates="group")
 
     __table_args__ = (
@@ -180,6 +185,148 @@ class SummaryState(Base):
     group: Mapped[GroupChat] = relationship(back_populates="summary_state")
 
 
+class BotInstance(Base):
+    __tablename__ = "bot_instances"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    bot_token_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    owner_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    telegram_bot_id: Mapped[int | None] = mapped_column(BigInteger)
+    telegram_username: Mapped[str | None] = mapped_column(String(255))
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="unvalidated")
+    needs_restart: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('unvalidated', 'valid', 'invalid', 'error')",
+            name="ck_bot_instances_status",
+        ),
+        Index(
+            "uq_bot_instances_one_enabled",
+            "enabled",
+            unique=True,
+            sqlite_where=text("enabled = 1"),
+            postgresql_where=text("enabled = true"),
+        ),
+    )
+
+
+class LLMProvider(Base):
+    __tablename__ = "llm_providers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    base_url: Mapped[str | None] = mapped_column(String(1024))
+    api_key_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    default_model: Mapped[str] = mapped_column(String(255), nullable=False)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="unvalidated")
+    last_validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+    summary_profiles: Mapped[list["SummaryProfile"]] = relationship(back_populates="llm_provider")
+
+    __table_args__ = (
+        CheckConstraint(
+            "provider_type in ('anthropic', 'openai', 'openai_compatible')",
+            name="ck_llm_providers_provider_type",
+        ),
+        CheckConstraint("timeout_seconds > 0", name="ck_llm_providers_positive_timeout"),
+        CheckConstraint("max_retries >= 0", name="ck_llm_providers_nonnegative_retries"),
+        CheckConstraint(
+            "status in ('unvalidated', 'valid', 'invalid', 'error')",
+            name="ck_llm_providers_status",
+        ),
+    )
+
+
+class SummaryProfile(Base):
+    __tablename__ = "summary_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    llm_provider_id: Mapped[int] = mapped_column(
+        ForeignKey("llm_providers.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    model: Mapped[str | None] = mapped_column(String(255))
+    prompt_version: Mapped[str] = mapped_column(String(80), nullable=False, default="v1")
+    system_prompt: Mapped[str | None] = mapped_column(Text)
+    temperature: Mapped[float | None] = mapped_column(Float)
+    max_output_tokens: Mapped[int | None] = mapped_column(Integer)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+    llm_provider: Mapped[LLMProvider] = relationship(back_populates="summary_profiles")
+    group_settings: Mapped[list["GroupSummarySettings"]] = relationship(back_populates="summary_profile")
+
+    __table_args__ = (
+        CheckConstraint(
+            "temperature is null or (temperature >= 0 and temperature <= 2)",
+            name="ck_summary_profiles_temperature_range",
+        ),
+        CheckConstraint(
+            "max_output_tokens is null or max_output_tokens > 0",
+            name="ck_summary_profiles_positive_max_output_tokens",
+        ),
+        Index(
+            "uq_summary_profiles_one_default",
+            "is_default",
+            unique=True,
+            sqlite_where=text("is_default = 1"),
+            postgresql_where=text("is_default = true"),
+        ),
+    )
+
+
+class GroupSummarySettings(Base):
+    __tablename__ = "group_summary_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    summary_profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("summary_profiles.id", ondelete="SET NULL"),
+        index=True,
+    )
+    timezone: Mapped[str] = mapped_column(String(80), nullable=False, default="UTC")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+    group: Mapped[GroupChat] = relationship(back_populates="summary_settings")
+    summary_profile: Mapped[SummaryProfile | None] = relationship(back_populates="group_settings")
+
+    __table_args__ = (
+        CheckConstraint("interval_minutes > 0", name="ck_group_summary_settings_positive_interval"),
+    )
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    actor: Mapped[str] = mapped_column(String(255), nullable=False)
+    action: Mapped[str] = mapped_column(String(120), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    entity_id: Mapped[str | None] = mapped_column(String(120))
+    redacted_before: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    redacted_after: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
 class SummaryJob(Base):
     __tablename__ = "summary_jobs"
 
@@ -191,6 +338,9 @@ class SummaryJob(Base):
     starting_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cutoff_sequence: Mapped[int | None] = mapped_column(Integer)
     prompt_version: Mapped[str | None] = mapped_column(String(80))
+    llm_provider_id: Mapped[int | None] = mapped_column(ForeignKey("llm_providers.id", ondelete="SET NULL"))
+    summary_profile_id: Mapped[int | None] = mapped_column(ForeignKey("summary_profiles.id", ondelete="SET NULL"))
+    model: Mapped[str | None] = mapped_column(String(255))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_type: Mapped[str | None] = mapped_column(String(MAX_SHORT_TEXT))
     error_message: Mapped[str | None] = mapped_column(Text)
@@ -230,6 +380,9 @@ class SummaryResult(Base):
     delivered_admin_chat_id: Mapped[int | None] = mapped_column(BigInteger)
     delivered_message_id: Mapped[int | None] = mapped_column(BigInteger)
     prompt_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    llm_provider_id: Mapped[int | None] = mapped_column(ForeignKey("llm_providers.id", ondelete="SET NULL"))
+    summary_profile_id: Mapped[int | None] = mapped_column(ForeignKey("summary_profiles.id", ondelete="SET NULL"))
+    model: Mapped[str | None] = mapped_column(String(255))
     interval_start_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     interval_end_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)

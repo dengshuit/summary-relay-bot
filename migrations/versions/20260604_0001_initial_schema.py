@@ -148,6 +148,128 @@ def upgrade() -> None:
     op.create_index("ix_summary_state_chat_id", "summary_state", ["chat_id"])
 
     op.create_table(
+        "bot_instances",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("name", sa.String(length=255), nullable=False),
+        sa.Column("bot_token_encrypted", sa.Text(), nullable=False),
+        sa.Column("owner_id", sa.BigInteger(), nullable=False),
+        sa.Column("telegram_bot_id", sa.BigInteger(), nullable=True),
+        sa.Column("telegram_username", sa.String(length=255), nullable=True),
+        sa.Column("enabled", sa.Boolean(), nullable=False),
+        sa.Column("status", sa.String(length=40), nullable=False),
+        sa.Column("needs_restart", sa.Boolean(), nullable=False),
+        sa.Column("last_validated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            "status in ('unvalidated', 'valid', 'invalid', 'error')",
+            name="ck_bot_instances_status",
+        ),
+    )
+    op.create_index(
+        "uq_bot_instances_one_enabled",
+        "bot_instances",
+        ["enabled"],
+        unique=True,
+        postgresql_where=sa.text("enabled = true"),
+        sqlite_where=sa.text("enabled = 1"),
+    )
+
+    op.create_table(
+        "llm_providers",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("name", sa.String(length=255), nullable=False),
+        sa.Column("provider_type", sa.String(length=40), nullable=False),
+        sa.Column("base_url", sa.String(length=1024), nullable=True),
+        sa.Column("api_key_encrypted", sa.Text(), nullable=False),
+        sa.Column("default_model", sa.String(length=255), nullable=False),
+        sa.Column("timeout_seconds", sa.Integer(), nullable=False),
+        sa.Column("max_retries", sa.Integer(), nullable=False),
+        sa.Column("enabled", sa.Boolean(), nullable=False),
+        sa.Column("status", sa.String(length=40), nullable=False),
+        sa.Column("last_validated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            "provider_type in ('anthropic', 'openai', 'openai_compatible')",
+            name="ck_llm_providers_provider_type",
+        ),
+        sa.CheckConstraint("timeout_seconds > 0", name="ck_llm_providers_positive_timeout"),
+        sa.CheckConstraint("max_retries >= 0", name="ck_llm_providers_nonnegative_retries"),
+        sa.CheckConstraint(
+            "status in ('unvalidated', 'valid', 'invalid', 'error')",
+            name="ck_llm_providers_status",
+        ),
+    )
+
+    op.create_table(
+        "summary_profiles",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("name", sa.String(length=255), nullable=False),
+        sa.Column("llm_provider_id", sa.Integer(), nullable=False),
+        sa.Column("model", sa.String(length=255), nullable=True),
+        sa.Column("prompt_version", sa.String(length=80), nullable=False),
+        sa.Column("system_prompt", sa.Text(), nullable=True),
+        sa.Column("temperature", sa.Float(), nullable=True),
+        sa.Column("max_output_tokens", sa.Integer(), nullable=True),
+        sa.Column("enabled", sa.Boolean(), nullable=False),
+        sa.Column("is_default", sa.Boolean(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            "temperature is null or (temperature >= 0 and temperature <= 2)",
+            name="ck_summary_profiles_temperature_range",
+        ),
+        sa.CheckConstraint(
+            "max_output_tokens is null or max_output_tokens > 0",
+            name="ck_summary_profiles_positive_max_output_tokens",
+        ),
+        sa.ForeignKeyConstraint(["llm_provider_id"], ["llm_providers.id"], ondelete="RESTRICT"),
+    )
+    op.create_index("ix_summary_profiles_llm_provider_id", "summary_profiles", ["llm_provider_id"])
+    op.create_index(
+        "uq_summary_profiles_one_default",
+        "summary_profiles",
+        ["is_default"],
+        unique=True,
+        postgresql_where=sa.text("is_default = true"),
+        sqlite_where=sa.text("is_default = 1"),
+    )
+
+    op.create_table(
+        "group_summary_settings",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("group_id", sa.Integer(), nullable=False),
+        sa.Column("enabled", sa.Boolean(), nullable=False),
+        sa.Column("interval_minutes", sa.Integer(), nullable=False),
+        sa.Column("summary_profile_id", sa.Integer(), nullable=True),
+        sa.Column("timezone", sa.String(length=80), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint("interval_minutes > 0", name="ck_group_summary_settings_positive_interval"),
+        sa.ForeignKeyConstraint(["group_id"], ["groups.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["summary_profile_id"], ["summary_profiles.id"], ondelete="SET NULL"),
+        sa.UniqueConstraint("group_id", name="uq_group_summary_settings_group_id"),
+    )
+    op.create_index(
+        "ix_group_summary_settings_summary_profile_id",
+        "group_summary_settings",
+        ["summary_profile_id"],
+    )
+
+    op.create_table(
+        "audit_logs",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("actor", sa.String(length=255), nullable=False),
+        sa.Column("action", sa.String(length=120), nullable=False),
+        sa.Column("entity_type", sa.String(length=120), nullable=False),
+        sa.Column("entity_id", sa.String(length=120), nullable=True),
+        sa.Column("redacted_before", _json_type(), nullable=True),
+        sa.Column("redacted_after", _json_type(), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    )
+
+    op.create_table(
         "summary_jobs",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("group_id", sa.Integer(), nullable=False),
@@ -157,6 +279,9 @@ def upgrade() -> None:
         sa.Column("starting_sequence", sa.Integer(), nullable=False),
         sa.Column("cutoff_sequence", sa.Integer(), nullable=True),
         sa.Column("prompt_version", sa.String(length=80), nullable=True),
+        sa.Column("llm_provider_id", sa.Integer(), nullable=True),
+        sa.Column("summary_profile_id", sa.Integer(), nullable=True),
+        sa.Column("model", sa.String(length=255), nullable=True),
         sa.Column("lease_expires_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("error_type", sa.String(length=255), nullable=True),
         sa.Column("error_message", sa.Text(), nullable=True),
@@ -169,6 +294,8 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint("trigger_type in ('manual', 'scheduled')", name="ck_summary_jobs_trigger_type"),
         sa.ForeignKeyConstraint(["group_id"], ["groups.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["llm_provider_id"], ["llm_providers.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(["summary_profile_id"], ["summary_profiles.id"], ondelete="SET NULL"),
     )
     op.create_index("ix_summary_jobs_chat_id", "summary_jobs", ["chat_id"])
     op.create_index("ix_summary_jobs_group_id", "summary_jobs", ["group_id"])
@@ -189,11 +316,16 @@ def upgrade() -> None:
         sa.Column("delivered_admin_chat_id", sa.BigInteger(), nullable=True),
         sa.Column("delivered_message_id", sa.BigInteger(), nullable=True),
         sa.Column("prompt_version", sa.String(length=80), nullable=False),
+        sa.Column("llm_provider_id", sa.Integer(), nullable=True),
+        sa.Column("summary_profile_id", sa.Integer(), nullable=True),
+        sa.Column("model", sa.String(length=255), nullable=True),
         sa.Column("interval_start_sequence", sa.Integer(), nullable=False),
         sa.Column("interval_end_sequence", sa.Integer(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["group_id"], ["groups.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["job_id"], ["summary_jobs.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["llm_provider_id"], ["llm_providers.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(["summary_profile_id"], ["summary_profiles.id"], ondelete="SET NULL"),
         sa.UniqueConstraint("job_id", name="uq_summary_results_job_id"),
     )
 
@@ -221,6 +353,15 @@ def downgrade() -> None:
     op.drop_index("ix_summary_jobs_group_id", table_name="summary_jobs")
     op.drop_index("ix_summary_jobs_chat_id", table_name="summary_jobs")
     op.drop_table("summary_jobs")
+    op.drop_table("audit_logs")
+    op.drop_index("ix_group_summary_settings_summary_profile_id", table_name="group_summary_settings")
+    op.drop_table("group_summary_settings")
+    op.drop_index("uq_summary_profiles_one_default", table_name="summary_profiles")
+    op.drop_index("ix_summary_profiles_llm_provider_id", table_name="summary_profiles")
+    op.drop_table("summary_profiles")
+    op.drop_table("llm_providers")
+    op.drop_index("uq_bot_instances_one_enabled", table_name="bot_instances")
+    op.drop_table("bot_instances")
     op.drop_index("ix_summary_state_chat_id", table_name="summary_state")
     op.drop_table("summary_state")
     op.drop_table("admin_reply_maps")
