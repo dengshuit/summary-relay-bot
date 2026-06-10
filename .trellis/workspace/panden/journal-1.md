@@ -137,3 +137,36 @@ Implemented WebUI Batch 02 bot configuration API with redacted read/update/valid
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Batch 03 Engine API
+
+**Date**: 2026-06-10
+**Task**: Batch 03 Engine API
+**Branch**: `master`
+
+### Summary
+
+Implemented LLM Provider and Summary Profile management APIs with redacted secret handling, default profile exclusivity, audit logging, and related tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `54e845e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
