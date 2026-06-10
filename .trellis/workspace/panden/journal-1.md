@@ -104,3 +104,36 @@ Implemented FastAPI Web API skeleton, bearer-token authentication, minimal dashb
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Batch 02 Bot Config API
+
+**Date**: 2026-06-10
+**Task**: Batch 02 Bot Config API
+**Branch**: `master`
+
+### Summary
+
+Implemented WebUI Batch 02 bot configuration API with redacted read/update/validate endpoints, secret replacement semantics, enabled bot mutual exclusion, restart markers, and related tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `28453c8` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
