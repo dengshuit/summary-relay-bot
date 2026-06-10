@@ -16,6 +16,10 @@ class WebhookInfoLike(Protocol):
     url: str
 
 
+class BotTokenConfig(Protocol):
+    bot_token: str
+
+
 @dataclass(frozen=True, slots=True)
 class StartupPreflightResult:
     webhook_was_active: bool
@@ -26,7 +30,7 @@ class ActiveWebhookError(RuntimeError):
     pass
 
 
-def create_bot(config: AppConfig) -> Bot:
+def create_bot(config: BotTokenConfig) -> Bot:
     return Bot(
         token=config.bot_token,
         default=DefaultBotProperties(parse_mode=None),

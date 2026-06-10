@@ -5,6 +5,8 @@ from sqlalchemy import select
 from summary_relay_bot.db.models import AuditLog, BotInstance
 from summary_relay_bot.db.repositories import upsert_group
 from summary_relay_bot.services.runtime_config import (
+    BotRuntimeConfig,
+    LLMProviderRuntimeConfig,
     RuntimeConfigError,
     create_bot_instance,
     create_llm_provider,
@@ -59,6 +61,30 @@ async def test_load_bot_runtime_config_decrypts_enabled_bot(db_session) -> None:
     assert runtime.bot_instance_id == bot.id
     assert runtime.bot_token == "123:bot-secret"
     assert runtime.owner_id == 1001
+    assert "bot-secret" not in repr(runtime)
+    assert "1001" not in repr(runtime)
+
+
+def test_runtime_config_repr_redacts_decrypted_secrets() -> None:
+    bot_runtime = BotRuntimeConfig(
+        bot_instance_id=1,
+        bot_token="123:bot-secret",
+        owner_id=1001,
+        name="Main bot",
+        needs_restart=False,
+    )
+    llm_runtime = LLMProviderRuntimeConfig(
+        llm_provider_id=2,
+        provider_type="anthropic",
+        api_key="llm-secret",
+        default_model="claude-default",
+        timeout_seconds=30,
+        max_retries=2,
+    )
+
+    assert "bot-secret" not in repr(bot_runtime)
+    assert "1001" not in repr(bot_runtime)
+    assert "llm-secret" not in repr(llm_runtime)
 
 
 async def test_only_one_enabled_bot_instance_is_allowed_by_service(db_session) -> None:

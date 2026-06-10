@@ -88,3 +88,41 @@ def test_bootstrap_config_requires_bootstrap_secrets() -> None:
 
     with pytest.raises(ConfigError, match="SETTINGS_ENCRYPTION_KEY"):
         BootstrapConfig.from_env(env)
+
+
+def test_app_config_can_be_built_from_bootstrap_and_runtime_bot_without_business_env() -> None:
+    bootstrap_config = BootstrapConfig.from_env(valid_bootstrap_env())
+
+    config = AppConfig.from_bootstrap_runtime(
+        bootstrap_config,
+        bot_token="123456:runtime-secret-token",
+        owner_id=2002,
+        env={},
+    )
+
+    rendered = repr(config)
+    assert config.bot_token == "123456:runtime-secret-token"
+    assert config.owner_id == 2002
+    assert config.database_url == bootstrap_config.database_url
+    assert config.llm_api_key == ""
+    assert "runtime-secret-token" not in rendered
+    assert "2002" not in rendered
+
+
+def test_app_config_from_bootstrap_runtime_keeps_non_bot_env_defaults_configurable() -> None:
+    bootstrap_config = BootstrapConfig.from_env(valid_bootstrap_env())
+
+    config = AppConfig.from_bootstrap_runtime(
+        bootstrap_config,
+        bot_token="123456:runtime-secret-token",
+        owner_id=2002,
+        env={
+            "SUMMARY_DEFAULT_INTERVAL_MINUTES": "45",
+            "SCHEDULER_TIMEZONE": "Asia/Shanghai",
+            "LLM_MODEL": "claude-runtime",
+        },
+    )
+
+    assert config.summary_default_interval_minutes == 45
+    assert config.scheduler_timezone == "Asia/Shanghai"
+    assert config.llm_model == "claude-runtime"

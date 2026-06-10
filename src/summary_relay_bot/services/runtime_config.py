@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from summary_relay_bot.config import redact_secret
 from summary_relay_bot.db.models import (
     AuditLog,
     BotInstance,
@@ -34,6 +35,19 @@ class BotRuntimeConfig:
     name: str
     needs_restart: bool
 
+    def safe_dict(self) -> dict[str, object]:
+        return {
+            "bot_instance_id": self.bot_instance_id,
+            "bot_token": redact_secret(self.bot_token),
+            "owner_id": "<redacted>",
+            "name": self.name,
+            "needs_restart": self.needs_restart,
+        }
+
+    def __repr__(self) -> str:
+        args = ", ".join(f"{key}={value!r}" for key, value in self.safe_dict().items())
+        return f"BotRuntimeConfig({args})"
+
 
 @dataclass(frozen=True, slots=True)
 class LLMProviderRuntimeConfig:
@@ -45,6 +59,21 @@ class LLMProviderRuntimeConfig:
     max_retries: int
     base_url: str | None = None
 
+    def safe_dict(self) -> dict[str, object]:
+        return {
+            "llm_provider_id": self.llm_provider_id,
+            "provider_type": self.provider_type,
+            "api_key": redact_secret(self.api_key),
+            "default_model": self.default_model,
+            "timeout_seconds": self.timeout_seconds,
+            "max_retries": self.max_retries,
+            "base_url": self.base_url,
+        }
+
+    def __repr__(self) -> str:
+        args = ", ".join(f"{key}={value!r}" for key, value in self.safe_dict().items())
+        return f"LLMProviderRuntimeConfig({args})"
+
 
 @dataclass(frozen=True, slots=True)
 class SummaryProfileRuntimeConfig:
@@ -55,6 +84,21 @@ class SummaryProfileRuntimeConfig:
     system_prompt: str | None
     temperature: float | None
     max_output_tokens: int | None
+
+    def safe_dict(self) -> dict[str, object]:
+        return {
+            "summary_profile_id": self.summary_profile_id,
+            "llm_provider": self.llm_provider.safe_dict(),
+            "model": self.model,
+            "prompt_version": self.prompt_version,
+            "system_prompt": self.system_prompt,
+            "temperature": self.temperature,
+            "max_output_tokens": self.max_output_tokens,
+        }
+
+    def __repr__(self) -> str:
+        args = ", ".join(f"{key}={value!r}" for key, value in self.safe_dict().items())
+        return f"SummaryProfileRuntimeConfig({args})"
 
 
 async def create_audit_log(

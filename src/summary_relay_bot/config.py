@@ -65,6 +65,41 @@ def redact_database_url(value: str) -> str:
     return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
 
 
+def _app_runtime_options(env: Mapping[str, str], *, llm_api_key: str) -> dict[str, object]:
+    return {
+        "allow_webhook_delete": _parse_bool(env.get("ALLOW_WEBHOOK_DELETE"), default=False),
+        "drop_pending_updates_on_webhook_delete": _parse_bool(
+            env.get("DROP_PENDING_UPDATES_ON_WEBHOOK_DELETE"), default=False
+        ),
+        "raw_update_retention_days": _parse_int(
+            env.get("RAW_UPDATE_RETENTION_DAYS", "30"),
+            "RAW_UPDATE_RETENTION_DAYS",
+            minimum=1,
+        ),
+        "summary_default_interval_minutes": _parse_int(
+            env.get("SUMMARY_DEFAULT_INTERVAL_MINUTES", "300"),
+            "SUMMARY_DEFAULT_INTERVAL_MINUTES",
+            minimum=1,
+        ),
+        "scheduler_timezone": env.get("SCHEDULER_TIMEZONE", "UTC").strip() or "UTC",
+        "scheduler_misfire_grace_seconds": _parse_int(
+            env.get("SCHEDULER_MISFIRE_GRACE_SECONDS", "300"),
+            "SCHEDULER_MISFIRE_GRACE_SECONDS",
+            minimum=0,
+        ),
+        "scheduler_coalesce": _parse_bool(env.get("SCHEDULER_COALESCE"), default=True),
+        "llm_provider": env.get("LLM_PROVIDER", "anthropic").strip() or "anthropic",
+        "llm_api_key": llm_api_key,
+        "llm_model": env.get("LLM_MODEL", "claude-opus-4-8").strip() or "claude-opus-4-8",
+        "llm_timeout_seconds": _parse_int(
+            env.get("LLM_TIMEOUT_SECONDS", "30"),
+            "LLM_TIMEOUT_SECONDS",
+            minimum=1,
+        ),
+        "summary_prompt_version": env.get("SUMMARY_PROMPT_VERSION", "v1").strip() or "v1",
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class BootstrapConfig:
     database_url: str
@@ -136,36 +171,28 @@ class AppConfig:
             bot_token=bot_token,
             owner_id=_parse_int(env.get("OWNER_ID"), "OWNER_ID", minimum=1),
             database_url=database_url,
-            allow_webhook_delete=_parse_bool(env.get("ALLOW_WEBHOOK_DELETE"), default=False),
-            drop_pending_updates_on_webhook_delete=_parse_bool(
-                env.get("DROP_PENDING_UPDATES_ON_WEBHOOK_DELETE"), default=False
-            ),
-            raw_update_retention_days=_parse_int(
-                env.get("RAW_UPDATE_RETENTION_DAYS", "30"),
-                "RAW_UPDATE_RETENTION_DAYS",
-                minimum=1,
-            ),
-            summary_default_interval_minutes=_parse_int(
-                env.get("SUMMARY_DEFAULT_INTERVAL_MINUTES", "300"),
-                "SUMMARY_DEFAULT_INTERVAL_MINUTES",
-                minimum=1,
-            ),
-            scheduler_timezone=env.get("SCHEDULER_TIMEZONE", "UTC").strip() or "UTC",
-            scheduler_misfire_grace_seconds=_parse_int(
-                env.get("SCHEDULER_MISFIRE_GRACE_SECONDS", "300"),
-                "SCHEDULER_MISFIRE_GRACE_SECONDS",
-                minimum=0,
-            ),
-            scheduler_coalesce=_parse_bool(env.get("SCHEDULER_COALESCE"), default=True),
-            llm_provider=env.get("LLM_PROVIDER", "anthropic").strip() or "anthropic",
-            llm_api_key=llm_api_key,
-            llm_model=env.get("LLM_MODEL", "claude-opus-4-8").strip() or "claude-opus-4-8",
-            llm_timeout_seconds=_parse_int(
-                env.get("LLM_TIMEOUT_SECONDS", "30"),
-                "LLM_TIMEOUT_SECONDS",
-                minimum=1,
-            ),
-            summary_prompt_version=env.get("SUMMARY_PROMPT_VERSION", "v1").strip() or "v1",
+            **_app_runtime_options(env, llm_api_key=llm_api_key),
+        )
+
+    @classmethod
+    def from_bootstrap_runtime(
+        cls,
+        bootstrap_config: BootstrapConfig,
+        *,
+        bot_token: str,
+        owner_id: int,
+        env: Mapping[str, str],
+    ) -> "AppConfig":
+        if bot_token.strip() == "":
+            raise ConfigError("bot_token is required")
+        if owner_id <= 0:
+            raise ConfigError("owner_id must be >= 1")
+
+        return cls(
+            bot_token=bot_token,
+            owner_id=owner_id,
+            database_url=bootstrap_config.database_url,
+            **_app_runtime_options(env, llm_api_key=env.get("LLM_API_KEY", "").strip()),
         )
 
     def safe_dict(self) -> dict[str, object]:
