@@ -361,11 +361,11 @@ class SummaryJob(Base):
             name="ck_summary_jobs_trigger_type",
         ),
         Index(
-            "uq_summary_jobs_one_running_per_group",
+            "uq_summary_jobs_one_active_per_group",
             "group_id",
             unique=True,
-            sqlite_where=text("status = 'running'"),
-            postgresql_where=text("status = 'running'"),
+            sqlite_where=text("status in ('pending', 'running')"),
+            postgresql_where=text("status in ('pending', 'running')"),
         ),
     )
 

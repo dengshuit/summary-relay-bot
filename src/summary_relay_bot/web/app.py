@@ -12,8 +12,10 @@ from summary_relay_bot.web.errors import (
     request_validation_exception_handler,
     unauthorized_exception_handler,
 )
+from summary_relay_bot.web.routes.audit_logs import router as audit_logs_router
 from summary_relay_bot.web.routes.bot import router as bot_router
 from summary_relay_bot.web.routes.dashboard import router as dashboard_router
+from summary_relay_bot.web.routes.groups import router as groups_router
 from summary_relay_bot.web.routes.llm_providers import router as llm_providers_router
 from summary_relay_bot.web.routes.summary_profiles import router as summary_profiles_router
 
@@ -38,5 +40,7 @@ def create_web_app(
     api_router.include_router(dashboard_router)
     api_router.include_router(llm_providers_router)
     api_router.include_router(summary_profiles_router)
+    api_router.include_router(groups_router)
+    api_router.include_router(audit_logs_router)
     app.include_router(api_router)
     return app

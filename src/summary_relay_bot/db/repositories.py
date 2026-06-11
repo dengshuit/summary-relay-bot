@@ -22,6 +22,8 @@ from summary_relay_bot.db.models import (
     utcnow,
 )
 
+ACTIVE_SUMMARY_JOB_STATUSES = ("pending", "running")
+
 
 async def get_or_create_raw_update(
     session: AsyncSession,
@@ -401,18 +403,18 @@ async def create_running_summary_job(
     prompt_version: str | None = None,
 ) -> SummaryJob | None:
     now = utcnow()
-    running = await session.scalar(
+    active = await session.scalar(
         select(SummaryJob).where(
             SummaryJob.group_id == group.id,
-            SummaryJob.status == "running",
+            SummaryJob.status.in_(ACTIVE_SUMMARY_JOB_STATUSES),
         )
     )
-    if running:
-        if running.lease_expires_at and running.lease_expires_at <= now:
-            running.status = "failed"
-            running.error_type = "lease_expired"
-            running.error_message = "stale running summary job was expired before starting a new job"
-            running.finished_at = now
+    if active:
+        if active.status == "running" and active.lease_expires_at and active.lease_expires_at <= now:
+            active.status = "failed"
+            active.error_type = "lease_expired"
+            active.error_message = "stale running summary job was expired before starting a new job"
+            active.finished_at = now
         else:
             return None
 
@@ -431,6 +433,62 @@ async def create_running_summary_job(
     return job
 
 
+async def get_active_summary_job(
+    session: AsyncSession,
+    *,
+    group_id: int,
+) -> SummaryJob | None:
+    return await session.scalar(
+        select(SummaryJob)
+        .options(selectinload(SummaryJob.result))
+        .where(
+            SummaryJob.group_id == group_id,
+            SummaryJob.status.in_(ACTIVE_SUMMARY_JOB_STATUSES),
+        )
+        .order_by(SummaryJob.id.desc())
+        .limit(1)
+    )
+
+
+async def create_pending_manual_summary_job(
+    session: AsyncSession,
+    *,
+    group: GroupChat,
+    starting_sequence: int,
+    prompt_version: str | None = None,
+) -> SummaryJob | None:
+    if await get_active_summary_job(session, group_id=group.id) is not None:
+        return None
+
+    job = SummaryJob(
+        group=group,
+        chat_id=group.chat_id,
+        trigger_type="manual",
+        status="pending",
+        starting_sequence=starting_sequence,
+        prompt_version=prompt_version,
+    )
+    session.add(job)
+    await session.flush()
+    return job
+
+
+async def mark_summary_job_running(
+    session: AsyncSession,
+    job: SummaryJob,
+    *,
+    lease_seconds: int = 300,
+) -> bool:
+    if job.status != "pending":
+        return False
+    now = utcnow()
+    job.status = "running"
+    job.started_at = now
+    job.lease_expires_at = now + timedelta(seconds=lease_seconds)
+    await session.flush()
+    return True
+
+
 async def finish_summary_job(
     session: AsyncSession,
     job: SummaryJob,
@@ -445,6 +503,7 @@ async def finish_summary_job(
     job.error_type = error_type
     job.error_message = error_message
     job.finished_at = utcnow()
+    job.lease_expires_at = None
     await session.flush()
 
 
@@ -476,6 +535,9 @@ async def create_summary_result(
     prompt_version: str,
     interval_start_sequence: int,
     interval_end_sequence: int,
+    llm_provider_id: int | None = None,
+    summary_profile_id: int | None = None,
+    model: str | None = None,
 ) -> SummaryResult:
     result = SummaryResult(
         job=job,
@@ -484,9 +546,41 @@ async def create_summary_result(
         delivered_admin_chat_id=delivered_admin_chat_id,
         delivered_message_id=delivered_message_id,
         prompt_version=prompt_version,
+        llm_provider_id=llm_provider_id,
+        summary_profile_id=summary_profile_id,
+        model=model,
         interval_start_sequence=interval_start_sequence,
         interval_end_sequence=interval_end_sequence,
     )
     session.add(result)
     await session.flush()
     return result
+
+
+async def get_summary_job_for_group(
+    session: AsyncSession,
+    *,
+    group_id: int,
+    job_id: int,
+) -> SummaryJob | None:
+    return await session.scalar(
+        select(SummaryJob)
+        .options(selectinload(SummaryJob.result))
+        .where(SummaryJob.group_id == group_id, SummaryJob.id == job_id)
+    )
+
+
+async def recent_summary_jobs_for_group(
+    session: AsyncSession,
+    *,
+    group_id: int,
+    limit: int = 10,
+) -> Sequence[SummaryJob]:
+    result = await session.scalars(
+        select(SummaryJob)
+        .options(selectinload(SummaryJob.result))
+        .where(SummaryJob.group_id == group_id)
+        .order_by(SummaryJob.id.desc())
+        .limit(limit)
+    )
+    return result.all()

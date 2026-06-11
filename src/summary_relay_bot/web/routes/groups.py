@@ -1,0 +1,494 @@
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Query, Response
+from fastapi.responses import JSONResponse
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import selectinload
+
+from summary_relay_bot.db.models import (
+    GroupChat,
+    GroupSummarySettings,
+    SummaryJob,
+    SummaryProfile,
+)
+from summary_relay_bot.db.repositories import (
+    get_active_summary_job,
+    get_summary_job_for_group,
+    recent_summary_jobs_for_group,
+)
+from summary_relay_bot.db.session import session_scope
+from summary_relay_bot.services.runtime_config import (
+    RuntimeConfigError,
+    SummaryProfileNotFoundError,
+    create_audit_log,
+    default_summary_profile,
+    get_summary_profile,
+    set_group_summary_settings,
+)
+from summary_relay_bot.services.secrets import SecretService
+from summary_relay_bot.services.summary_jobs import (
+    SummaryJobConflictError,
+    SummaryJobNotFoundError,
+    SummaryJobResultView,
+    SummaryJobView,
+    create_manual_summary_job,
+    get_summary_job_status,
+    schedule_manual_summary_job,
+)
+from summary_relay_bot.web.deps import get_actor, get_secret_service, get_session_factory
+from summary_relay_bot.web.errors import api_error_response
+from summary_relay_bot.web.schemas import (
+    EffectiveSummaryProfileSchema,
+    GroupDetailSchema,
+    GroupLastSummarySchema,
+    GroupListItemSchema,
+    GroupListResponse,
+    GroupSummarySettingsSchema,
+    GroupSummarySettingsUpdateRequest,
+    GroupSummaryStateSchema,
+    SummaryJobResultSchema,
+    SummaryJobSchema,
+    TriggerSummaryJobResponse,
+)
+
+
+router = APIRouter(prefix="/groups", tags=["groups"])
+
+_MAX_LIMIT = 100
+_DEFAULT_INTERVAL_MINUTES = 300
+_DEFAULT_TIMEZONE = "UTC"
+_SUMMARY_JOB_STATUSES = frozenset({"pending", "running", "succeeded", "failed", "blocked"})
+
+
+def _normalize_limit(limit: int) -> int:
+    return max(1, min(limit, _MAX_LIMIT))
+
+
+def _model_data(model) -> dict:
+    dump = getattr(model, "model_dump", None)
+    if dump is not None:
+        return dump()
+    return model.dict()
+
+
+def _decode_cursor(cursor: str | None) -> int | None:
+    if cursor is None:
+        return None
+    try:
+        parsed = int(cursor)
+    except ValueError:
+        raise RuntimeConfigError("cursor is invalid") from None
+    if parsed <= 0:
+        raise RuntimeConfigError("cursor is invalid")
+    return parsed
+
+
+def _settings_schema(group: GroupChat) -> GroupSummarySettingsSchema:
+    settings = group.summary_settings
+    if settings is None:
+        return GroupSummarySettingsSchema(
+            enabled=group.summaries_enabled,
+            interval_minutes=group.summary_interval_minutes or _DEFAULT_INTERVAL_MINUTES,
+            summary_profile_id=None,
+            timezone=_DEFAULT_TIMEZONE,
+        )
+    return GroupSummarySettingsSchema(
+        enabled=settings.enabled,
+        interval_minutes=settings.interval_minutes,
+        summary_profile_id=settings.summary_profile_id,
+        timezone=settings.timezone,
+    )
+
+
+def _effective_profile_schema(profile: SummaryProfile | None) -> EffectiveSummaryProfileSchema | None:
+    if profile is None:
+        return None
+    return EffectiveSummaryProfileSchema(id=profile.id, name=profile.name)
+
+
+def _last_summary_schema(job: SummaryJob | None) -> GroupLastSummarySchema | None:
+    if job is None:
+        return None
+    return GroupLastSummarySchema(
+        status=job.status,
+        finished_at=job.finished_at,
+        error_type=job.error_type,
+    )
+
+
+def _job_result_schema(result: SummaryJobResultView | None) -> SummaryJobResultSchema | None:
+    if result is None:
+        return None
+    return SummaryJobResultSchema(
+        id=result.id,
+        prompt_version=result.prompt_version,
+        llm_provider_id=result.llm_provider_id,
+        summary_profile_id=result.summary_profile_id,
+        model=result.model,
+        interval_start_sequence=result.interval_start_sequence,
+        interval_end_sequence=result.interval_end_sequence,
+        created_at=result.created_at,
+    )
+
+
+def _job_schema(job: SummaryJobView | None) -> SummaryJobSchema | None:
+    if job is None:
+        return None
+    return SummaryJobSchema(
+        id=job.id,
+        group_id=job.group_id,
+        chat_id=job.chat_id,
+        trigger_type=job.trigger_type,
+        status=job.status,
+        starting_sequence=job.starting_sequence,
+        cutoff_sequence=job.cutoff_sequence,
+        prompt_version=job.prompt_version,
+        llm_provider_id=job.llm_provider_id,
+        summary_profile_id=job.summary_profile_id,
+        model=job.model,
+        created_at=job.created_at,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        error_type=job.error_type,
+        error_message=job.error_message,
+        result=_job_result_schema(job.result),
+    )
+
+
+def _job_view_from_model(job: SummaryJob | None) -> SummaryJobView | None:
+    if job is None:
+        return None
+    result = job.result
+    return SummaryJobView(
+        id=job.id,
+        group_id=job.group_id,
+        chat_id=job.chat_id,
+        trigger_type=job.trigger_type,
+        status=job.status,
+        starting_sequence=job.starting_sequence,
+        cutoff_sequence=job.cutoff_sequence,
+        prompt_version=job.prompt_version,
+        llm_provider_id=job.llm_provider_id,
+        summary_profile_id=job.summary_profile_id,
+        model=job.model,
+        error_type=job.error_type,
+        error_message=job.error_message,
+        created_at=job.created_at,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        result=(
+            SummaryJobResultView(
+                id=result.id,
+                prompt_version=result.prompt_version,
+                llm_provider_id=result.llm_provider_id,
+                summary_profile_id=result.summary_profile_id,
+                model=result.model,
+                interval_start_sequence=result.interval_start_sequence,
+                interval_end_sequence=result.interval_end_sequence,
+                created_at=result.created_at,
+            )
+            if result is not None
+            else None
+        ),
+    )
+
+
+async def _effective_profile(session: AsyncSession, group: GroupChat) -> SummaryProfile | None:
+    settings = group.summary_settings
+    if settings is not None and settings.summary_profile is not None:
+        return settings.summary_profile
+    return await default_summary_profile(session)
+
+
+async def _group_list_item_schema(session: AsyncSession, group: GroupChat) -> GroupListItemSchema:
+    recent_jobs = await recent_summary_jobs_for_group(session, group_id=group.id, limit=1)
+    return GroupListItemSchema(
+        id=group.id,
+        chat_id=group.chat_id,
+        chat_type=group.chat_type,
+        title=group.title,
+        username=group.username,
+        discovered_at=group.discovered_at,
+        settings=_settings_schema(group),
+        effective_profile=_effective_profile_schema(await _effective_profile(session, group)),
+        last_summary=_last_summary_schema(recent_jobs[0] if recent_jobs else None),
+    )
+
+
+async def _get_group(session: AsyncSession, group_id: int) -> GroupChat | None:
+    return await session.get(
+        GroupChat,
+        group_id,
+        options=[
+            selectinload(GroupChat.summary_settings).selectinload(GroupSummarySettings.summary_profile),
+            selectinload(GroupChat.summary_state),
+        ],
+    )
+
+
+def _groups_statement_with_filters(
+    *,
+    q: str | None,
+    enabled: bool | None,
+    profile_id: int | None,
+    status: str | None,
+    cursor_id: int | None,
+):
+    statement = (
+        select(GroupChat)
+        .options(
+            selectinload(GroupChat.summary_settings).selectinload(GroupSummarySettings.summary_profile),
+            selectinload(GroupChat.summary_state),
+        )
+        .outerjoin(GroupSummarySettings, GroupSummarySettings.group_id == GroupChat.id)
+        .order_by(GroupChat.id)
+    )
+    if cursor_id is not None:
+        statement = statement.where(GroupChat.id > cursor_id)
+    if q is not None and q.strip():
+        statement = statement.where(GroupChat.title.ilike(f"%{q.strip()}%"))
+    if enabled is not None:
+        if enabled:
+            statement = statement.where(GroupSummarySettings.enabled.is_(True))
+        else:
+            statement = statement.where(
+                (GroupSummarySettings.id.is_(None)) | (GroupSummarySettings.enabled.is_(False))
+            )
+    if profile_id is not None:
+        statement = statement.where(GroupSummarySettings.summary_profile_id == profile_id)
+    if status is not None:
+        latest_job_ids = (
+            select(
+                SummaryJob.group_id.label("group_id"),
+                func.max(SummaryJob.id).label("job_id"),
+            )
+            .group_by(SummaryJob.group_id)
+            .subquery()
+        )
+        latest_jobs = (
+            select(
+                SummaryJob.group_id.label("group_id"),
+                SummaryJob.status.label("status"),
+            )
+            .join(latest_job_ids, SummaryJob.id == latest_job_ids.c.job_id)
+            .subquery()
+        )
+        statement = statement.outerjoin(latest_jobs, latest_jobs.c.group_id == GroupChat.id)
+        if status == "none":
+            statement = statement.where(latest_jobs.c.group_id.is_(None))
+        else:
+            statement = statement.where(latest_jobs.c.status == status)
+    return statement
+
+
+@router.get("", response_model=GroupListResponse)
+async def get_groups(
+    session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
+    q: Annotated[str | None, Query()] = None,
+    enabled: Annotated[bool | None, Query()] = None,
+    profile_id: Annotated[int | None, Query()] = None,
+    status: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query()] = 50,
+    cursor: Annotated[str | None, Query()] = None,
+) -> GroupListResponse | JSONResponse:
+    try:
+        normalized_limit = _normalize_limit(limit)
+        cursor_id = _decode_cursor(cursor)
+        if status is not None and status not in {*_SUMMARY_JOB_STATUSES, "none"}:
+            raise RuntimeConfigError("status is not supported")
+
+        async with session_factory() as session:
+            statement = _groups_statement_with_filters(
+                q=q,
+                enabled=enabled,
+                profile_id=profile_id,
+                status=status,
+                cursor_id=cursor_id,
+            )
+            groups = (await session.scalars(statement.limit(normalized_limit + 1))).unique().all()
+            has_more = len(groups) > normalized_limit
+            groups = groups[:normalized_limit]
+            items = [await _group_list_item_schema(session, group) for group in groups]
+            next_cursor = str(groups[-1].id) if has_more and groups else None
+    except RuntimeConfigError as exc:
+        return api_error_response(
+            status_code=400,
+            code="validation_error",
+            message=str(exc),
+        )
+    return GroupListResponse(items=items, next_cursor=next_cursor)
+
+
+@router.get("/{group_id}", response_model=GroupDetailSchema)
+async def get_group(
+    group_id: int,
+    session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
+) -> GroupDetailSchema | JSONResponse:
+    async with session_factory() as session:
+        group = await _get_group(session, group_id)
+        if group is None:
+            return api_error_response(
+                status_code=404,
+                code="not_found",
+                message="group not found",
+            )
+        item = await _group_list_item_schema(session, group)
+        active_job = await get_active_summary_job(session, group_id=group.id)
+        recent_jobs = await recent_summary_jobs_for_group(session, group_id=group.id, limit=10)
+        state = group.summary_state
+        return GroupDetailSchema(
+            **_model_data(item),
+            summary_state=(
+                GroupSummaryStateSchema(
+                    last_summary_sequence=state.last_summary_sequence,
+                    last_summary_at=state.last_summary_at,
+                )
+                if state is not None
+                else None
+            ),
+            active_job=_job_schema(_job_view_from_model(active_job)),
+            recent_jobs=[
+                job_schema
+                for job in recent_jobs
+                if (job_schema := _job_schema(_job_view_from_model(job))) is not None
+            ],
+        )
+
+
+@router.patch("/{group_id}/summary-settings", response_model=GroupSummarySettingsSchema)
+async def patch_group_summary_settings(
+    group_id: int,
+    payload: GroupSummarySettingsUpdateRequest,
+    session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
+    actor: Annotated[str, Depends(get_actor)],
+) -> GroupSummarySettingsSchema | JSONResponse:
+    try:
+        async with session_scope(session_factory) as session:
+            group = await _get_group(session, group_id)
+            if group is None:
+                return api_error_response(
+                    status_code=404,
+                    code="not_found",
+                    message="group not found",
+                )
+            profile = None
+            if payload.summary_profile_id is not None:
+                profile = await get_summary_profile(session, payload.summary_profile_id)
+            settings = await set_group_summary_settings(
+                session,
+                group=group,
+                enabled=payload.enabled,
+                interval_minutes=payload.interval_minutes,
+                summary_profile=profile,
+                timezone=payload.timezone,
+                actor=actor,
+            )
+    except SummaryProfileNotFoundError:
+        return api_error_response(
+            status_code=404,
+            code="not_found",
+            message="summary profile not found",
+        )
+    except RuntimeConfigError as exc:
+        message = str(exc)
+        return api_error_response(
+            status_code=400,
+            code="validation_error",
+            message=message,
+        )
+    return GroupSummarySettingsSchema(
+        enabled=settings.enabled,
+        interval_minutes=settings.interval_minutes,
+        summary_profile_id=settings.summary_profile_id,
+        timezone=settings.timezone,
+    )
+
+
+@router.post("/{group_id}/summary-jobs", response_model=TriggerSummaryJobResponse, status_code=202)
+async def post_group_summary_job(
+    group_id: int,
+    response: Response,
+    session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
+    secret_service: Annotated[SecretService, Depends(get_secret_service)],
+    actor: Annotated[str, Depends(get_actor)],
+) -> TriggerSummaryJobResponse | JSONResponse:
+    scheduled_group_id: int | None = None
+    scheduled_job_id: int | None = None
+    try:
+        async with session_scope(session_factory) as session:
+            group = await _get_group(session, group_id)
+            if group is None:
+                return api_error_response(
+                    status_code=404,
+                    code="not_found",
+                    message="group not found",
+                )
+            job = await create_manual_summary_job(session, group=group)
+            await create_audit_log(
+                session,
+                actor=actor,
+                action="trigger_summary",
+                entity_type="summary_job",
+                entity_id=str(job.id),
+                redacted_after={
+                    "group_id": group.id,
+                    "chat_id": group.chat_id,
+                    "job_id": job.id,
+                    "trigger_type": "manual",
+                    "status": job.status,
+                },
+            )
+            scheduled_group_id = group.id
+            scheduled_job_id = job.id
+    except SummaryJobConflictError as exc:
+        return api_error_response(
+            status_code=409,
+            code="summary_job_conflict",
+            message="该群有摘要正在生成",
+            details={"active_job_id": exc.active_job_id},
+        )
+    if scheduled_group_id is None or scheduled_job_id is None:
+        raise RuntimeError("created summary job unexpectedly missing")
+    schedule_manual_summary_job(
+        session_factory=session_factory,
+        secret_service=secret_service,
+        group_id=scheduled_group_id,
+        job_id=scheduled_job_id,
+    )
+    poll_url = f"/api/groups/{group_id}/summary-jobs/{job.id}"
+    response.status_code = 202
+    job_schema = _job_schema(job)
+    if job_schema is None:
+        raise RuntimeError("created summary job unexpectedly missing")
+    return TriggerSummaryJobResponse(job=job_schema, poll_url=poll_url)
+
+
+@router.get("/{group_id}/summary-jobs/{job_id}", response_model=SummaryJobSchema)
+async def get_group_summary_job(
+    group_id: int,
+    job_id: int,
+    session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
+) -> SummaryJobSchema | JSONResponse:
+    async with session_factory() as session:
+        group = await _get_group(session, group_id)
+        if group is None:
+            return api_error_response(
+                status_code=404,
+                code="not_found",
+                message="group not found",
+            )
+        try:
+            job = await get_summary_job_status(session, group=group, job_id=job_id)
+        except SummaryJobNotFoundError:
+            return api_error_response(
+                status_code=404,
+                code="not_found",
+                message="summary job not found",
+            )
+    job_schema = _job_schema(job)
+    if job_schema is None:
+        raise RuntimeError("summary job unexpectedly missing")
+    return job_schema

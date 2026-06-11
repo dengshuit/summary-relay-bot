@@ -1196,9 +1196,9 @@ async def set_group_summary_settings(
             timezone=timezone,
         )
         session.add(settings)
-        action = "create_group_summary_settings"
     else:
         before = {
+            "group_id": settings.group_id,
             "enabled": settings.enabled,
             "interval_minutes": settings.interval_minutes,
             "summary_profile_id": settings.summary_profile_id,
@@ -1209,13 +1209,15 @@ async def set_group_summary_settings(
         settings.summary_profile = summary_profile
         settings.timezone = timezone
         settings.updated_at = utcnow()
-        action = "update_group_summary_settings"
 
+    group.summaries_enabled = enabled
+    group.summary_interval_minutes = interval_minutes
+    group.updated_at = utcnow()
     await session.flush()
     await create_audit_log(
         session,
         actor=actor,
-        action=action,
+        action="update_group_summary_settings",
         entity_type="group_summary_settings",
         entity_id=str(settings.id),
         redacted_before=before,

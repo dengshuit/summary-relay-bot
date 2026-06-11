@@ -300,11 +300,12 @@ def upgrade() -> None:
     op.create_index("ix_summary_jobs_chat_id", "summary_jobs", ["chat_id"])
     op.create_index("ix_summary_jobs_group_id", "summary_jobs", ["group_id"])
     op.create_index(
-        "uq_summary_jobs_one_running_per_group",
+        "uq_summary_jobs_one_active_per_group",
         "summary_jobs",
         ["group_id"],
         unique=True,
-        postgresql_where=sa.text("status = 'running'"),
+        sqlite_where=sa.text("status in ('pending', 'running')"),
+        postgresql_where=sa.text("status in ('pending', 'running')"),
     )
 
     op.create_table(
@@ -349,7 +350,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_table("delivery_attempts")
     op.drop_table("summary_results")
-    op.drop_index("uq_summary_jobs_one_running_per_group", table_name="summary_jobs")
+    op.drop_index("uq_summary_jobs_one_active_per_group", table_name="summary_jobs")
     op.drop_index("ix_summary_jobs_group_id", table_name="summary_jobs")
     op.drop_index("ix_summary_jobs_chat_id", table_name="summary_jobs")
     op.drop_table("summary_jobs")

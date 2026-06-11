@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -198,3 +199,108 @@ class DashboardResponse(BaseModel):
     summary_24h: Summary24hSchema
     restart_pending: list[str]
     recent_audit_logs: list[RecentAuditLogSchema]
+
+
+class GroupSummarySettingsSchema(BaseModel):
+    enabled: bool
+    interval_minutes: int
+    summary_profile_id: int | None = None
+    timezone: str
+
+
+class EffectiveSummaryProfileSchema(BaseModel):
+    id: int
+    name: str
+
+
+class GroupLastSummarySchema(BaseModel):
+    status: str
+    finished_at: datetime | None = None
+    error_type: str | None = None
+
+
+class GroupSummaryStateSchema(BaseModel):
+    last_summary_sequence: int
+    last_summary_at: datetime | None = None
+
+
+class SummaryJobResultSchema(BaseModel):
+    id: int
+    prompt_version: str
+    llm_provider_id: int | None = None
+    summary_profile_id: int | None = None
+    model: str | None = None
+    interval_start_sequence: int
+    interval_end_sequence: int
+    created_at: datetime
+
+
+class SummaryJobSchema(BaseModel):
+    id: int
+    group_id: int
+    chat_id: int
+    trigger_type: str
+    status: str
+    starting_sequence: int
+    cutoff_sequence: int | None = None
+    prompt_version: str | None = None
+    llm_provider_id: int | None = None
+    summary_profile_id: int | None = None
+    model: str | None = None
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    result: SummaryJobResultSchema | None = None
+
+
+class GroupListItemSchema(BaseModel):
+    id: int
+    chat_id: int
+    chat_type: str
+    title: str | None = None
+    username: str | None = None
+    discovered_at: datetime
+    settings: GroupSummarySettingsSchema
+    effective_profile: EffectiveSummaryProfileSchema | None = None
+    last_summary: GroupLastSummarySchema | None = None
+
+
+class GroupListResponse(BaseModel):
+    items: list[GroupListItemSchema]
+    next_cursor: str | None = None
+
+
+class GroupDetailSchema(GroupListItemSchema):
+    summary_state: GroupSummaryStateSchema | None = None
+    active_job: SummaryJobSchema | None = None
+    recent_jobs: list[SummaryJobSchema]
+
+
+class GroupSummarySettingsUpdateRequest(BaseModel):
+    enabled: bool
+    interval_minutes: int
+    summary_profile_id: int | None = None
+    timezone: str = "UTC"
+
+
+class TriggerSummaryJobResponse(BaseModel):
+    job: SummaryJobSchema
+    poll_url: str
+
+
+class AuditLogSchema(BaseModel):
+    id: int
+    actor: str
+    action: str
+    entity_type: str
+    entity_id: str | None = None
+    redacted_before: dict[str, Any] | None = None
+    redacted_after: dict[str, Any] | None = None
+    created_at: datetime
+
+
+class AuditLogListResponse(BaseModel):
+    items: list[AuditLogSchema]
+    next_cursor: str | None = None

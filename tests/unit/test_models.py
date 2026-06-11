@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
-from summary_relay_bot.db.models import AdminReplyMap, GroupMessage, TelegramUpdate
+from summary_relay_bot.db.models import AdminReplyMap, GroupMessage, SummaryJob, TelegramUpdate
 from summary_relay_bot.db.repositories import (
     create_reply_map,
     get_or_create_raw_update,
@@ -95,3 +97,29 @@ async def test_group_media_metadata_has_no_file_body_column(db_session) -> None:
     assert stored.file_name == "file.pdf"
     assert not hasattr(stored, "file_body")
     assert "file_body" not in GroupMessage.__table__.columns
+
+
+async def test_summary_jobs_allow_only_one_active_job_per_group(db_session) -> None:
+    group = await upsert_group(db_session, chat_id=-300, chat_type="supergroup", title="Group")
+    db_session.add(
+        SummaryJob(
+            group=group,
+            chat_id=group.chat_id,
+            trigger_type="manual",
+            status="pending",
+            starting_sequence=0,
+        )
+    )
+    await db_session.flush()
+    db_session.add(
+        SummaryJob(
+            group=group,
+            chat_id=group.chat_id,
+            trigger_type="manual",
+            status="running",
+            starting_sequence=0,
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        await db_session.flush()
