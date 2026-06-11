@@ -54,7 +54,7 @@ cp .env.example .env
 | `WEBUI_HOST` | WebUI/API 监听地址。容器暴露端口时使用 `0.0.0.0`。 |
 | `WEBUI_PORT` | WebUI/API 监听端口。 |
 
-Bot token、owner id、LLM API key、provider model、summary profile 和群组摘要设置都属于数据库管理的运行时配置。执行迁移后通过 WebUI 配置。空数据库或没有 enabled bot 时 WebUI 仍会启动；只有成功加载并解密 enabled bot 后才会启动 Telegram polling。
+Bot token、owner id、LLM API key、provider model、summary profile 和群组摘要设置都属于数据库管理的运行时配置。数据库 schema 初始化后通过 WebUI 配置。空数据库或没有 enabled bot 时 WebUI 仍会启动；只有成功加载并解密 enabled bot 后才会启动 Telegram polling。
 
 用下面的命令生成 `SETTINGS_ENCRYPTION_KEY`：
 
@@ -126,10 +126,10 @@ GitHub Actions 发布镜像后，将 `BOT_IMAGE` 指向 GHCR 镜像 tag：
 ```bash
 export BOT_IMAGE=ghcr.io/<owner>/<repo>:latest
 docker compose pull bot
-docker compose up -d postgres
-docker compose run --rm bot alembic upgrade head
-docker compose up -d bot
+docker compose up -d
 ```
+
+Docker Compose 的 bot 启动命令会在应用启动前执行 `alembic upgrade head`，因此新数据库会自动迁移。如果迁移失败，bot 容器会退出，不会继续用无效 schema 启动。
 
 一个 bot token 只能运行一个 polling 进程。Telegram polling 和 webhook 互斥；使用 polling 前应取消 webhook，或明确设置 `ALLOW_WEBHOOK_DELETE=true`。
 
@@ -137,12 +137,11 @@ docker compose up -d bot
 
 ### 生产升级
 
-拉取新镜像，执行迁移，然后重启 bot：
+拉取新镜像并重启 bot。容器会在应用启动前执行待处理迁移：
 
 ```bash
 export BOT_IMAGE=ghcr.io/<owner>/<repo>:latest
 docker compose pull bot
-docker compose run --rm bot alembic upgrade head
 docker compose up -d bot
 ```
 
@@ -192,39 +191,29 @@ python3 -m pip check
 cp .env.example .env
 ```
 
-启动 PostgreSQL：
-
-```bash
-docker compose up -d postgres
-```
-
-执行数据库迁移：
-
-```bash
-docker compose run --rm bot alembic upgrade head
-```
-
 本地构建并启动 bot：
 
 ```bash
 docker compose up --build bot
 ```
 
-也可以在迁移后启动所有服务：
+也可以启动所有服务：
 
 ```bash
 docker compose up --build
 ```
 
+Docker Compose 的 bot 启动命令会在启动应用前自动执行迁移。
+
 ## 数据库迁移
 
-首次连接新数据库前先执行迁移：
+Docker Compose 会为 bot 服务自动执行迁移。非 Compose 部署首次连接新数据库前，需要先执行迁移：
 
 ```bash
 alembic upgrade head
 ```
 
-使用 Docker Compose 时，通过 bot 镜像执行迁移：
+如需通过 Docker Compose 的 bot 镜像手动执行迁移，可以覆盖服务命令：
 
 ```bash
 docker compose run --rm bot alembic upgrade head

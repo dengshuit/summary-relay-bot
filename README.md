@@ -54,7 +54,7 @@ Required bootstrap variables:
 | `WEBUI_HOST` | WebUI/API listen host. Use `0.0.0.0` in containers that expose the port. |
 | `WEBUI_PORT` | WebUI/API listen port. |
 
-Bot token, owner ID, LLM API key, provider model, summary profiles, and group summary settings are database-managed runtime configuration. Configure them through the WebUI after migrations are applied. Empty databases or databases with no enabled bot still start the WebUI; Telegram polling starts only after an enabled bot can be loaded and decrypted.
+Bot token, owner ID, LLM API key, provider model, summary profiles, and group summary settings are database-managed runtime configuration. Configure them through the WebUI after the database schema is initialized. Empty databases or databases with no enabled bot still start the WebUI; Telegram polling starts only after an enabled bot can be loaded and decrypted.
 
 Generate `SETTINGS_ENCRYPTION_KEY` with:
 
@@ -126,10 +126,10 @@ After the GitHub Actions workflow publishes an image, set `BOT_IMAGE` to the GHC
 ```bash
 export BOT_IMAGE=ghcr.io/<owner>/<repo>:latest
 docker compose pull bot
-docker compose up -d postgres
-docker compose run --rm bot alembic upgrade head
-docker compose up -d bot
+docker compose up -d
 ```
+
+The Docker Compose bot command runs `alembic upgrade head` before starting the application, so a fresh database is migrated automatically. If migrations fail, the bot container exits instead of starting against an invalid schema.
 
 Run exactly one polling process for one bot token. Telegram polling and webhooks are mutually exclusive, so unset any webhook before using polling or set `ALLOW_WEBHOOK_DELETE=true` deliberately.
 
@@ -137,12 +137,11 @@ Open the WebUI at `http://<host>:<WEBUI_PORT>/` and log in with `WEBUI_ADMIN_TOK
 
 ### Upgrade production
 
-Pull the newer image, run migrations, and restart the bot:
+Pull the newer image and restart the bot. The container runs pending migrations before the application starts:
 
 ```bash
 export BOT_IMAGE=ghcr.io/<owner>/<repo>:latest
 docker compose pull bot
-docker compose run --rm bot alembic upgrade head
 docker compose up -d bot
 ```
 
@@ -192,39 +191,29 @@ Create and edit `.env`:
 cp .env.example .env
 ```
 
-Start PostgreSQL:
-
-```bash
-docker compose up -d postgres
-```
-
-Run database migrations:
-
-```bash
-docker compose run --rm bot alembic upgrade head
-```
-
 Build and start the bot locally:
 
 ```bash
 docker compose up --build bot
 ```
 
-Or start all services after migrations:
+Or start all services:
 
 ```bash
 docker compose up --build
 ```
 
+The Docker Compose bot command runs migrations before launching the application.
+
 ## Database Migrations
 
-Run migrations before starting the bot against a fresh database:
+Docker Compose runs migrations automatically for the bot service. For non-Compose deployments, run migrations before starting the bot against a fresh database:
 
 ```bash
 alembic upgrade head
 ```
 
-When using Docker Compose, run migrations through the bot image:
+To run migrations manually through the Docker Compose bot image, override the service command:
 
 ```bash
 docker compose run --rm bot alembic upgrade head

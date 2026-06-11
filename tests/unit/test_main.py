@@ -10,10 +10,13 @@ from summary_relay_bot.config import BootstrapConfig
 from summary_relay_bot.db.base import Base
 from summary_relay_bot.db.session import session_scope
 from summary_relay_bot.main import (
+    LOG_DATE_FORMAT,
+    LOG_FORMAT,
     TELEGRAM_STARTUP_BOT_SECRET_ERROR,
     TELEGRAM_STARTUP_NO_ENABLED_BOT,
     TELEGRAM_STARTUP_READY,
     build_runtime_app,
+    configure_logging,
     load_telegram_startup_state,
     run_runtime_app,
     start_polling,
@@ -77,6 +80,24 @@ async def _session_factory(database_url: str) -> tuple[AsyncEngine, async_sessio
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     return engine, async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+
+
+def test_configure_logging_adds_timestamped_application_format() -> None:
+    root_logger = logging.getLogger()
+    original_handlers = root_logger.handlers[:]
+    original_level = root_logger.level
+    try:
+        configure_logging()
+
+        assert root_logger.level == logging.INFO
+        assert len(root_logger.handlers) == 1
+        formatter = root_logger.handlers[0].formatter
+        assert formatter is not None
+        assert formatter._fmt == LOG_FORMAT
+        assert formatter.datefmt == LOG_DATE_FORMAT
+    finally:
+        root_logger.handlers[:] = original_handlers
+        root_logger.setLevel(original_level)
 
 
 async def test_load_telegram_startup_state_without_enabled_bot_skips_polling(session_factory) -> None:

@@ -4,6 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    command: ["sh", "-c", "alembic upgrade head && exec summary-relay-bot"]
     env_file:
       - .env
     depends_on:

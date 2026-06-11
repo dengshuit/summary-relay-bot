@@ -2,7 +2,7 @@
 
 ## Startup checklist
 
-1. Create the PostgreSQL database and run `alembic upgrade head`.
+1. Create the PostgreSQL database. Docker Compose runs `alembic upgrade head` automatically before starting the bot service; run it manually only for non-Compose deployments.
 2. Set the required bootstrap env: `DATABASE_URL`, `SETTINGS_ENCRYPTION_KEY`, and `WEBUI_ADMIN_TOKEN`. Set `WEBUI_HOST` and `WEBUI_PORT` when the defaults are not appropriate.
 3. Start exactly one bot service process. Empty databases and databases with no enabled bot still start the WebUI; Telegram polling does not start until an enabled bot can be loaded and decrypted.
 4. Open the WebUI and log in with `WEBUI_ADMIN_TOKEN`.

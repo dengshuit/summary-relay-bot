@@ -24,6 +24,9 @@ from summary_relay_bot.web.app import create_web_app
 logger = logging.getLogger(__name__)
 
 
+LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
+
 TELEGRAM_STARTUP_READY = "ready"
 TELEGRAM_STARTUP_NO_ENABLED_BOT = "no_enabled_bot"
 TELEGRAM_STARTUP_BOT_SECRET_ERROR = "bot_secret_error"
@@ -235,6 +238,7 @@ async def start_web_api(runtime_app: RuntimeApp) -> None:
         host=runtime_app.bootstrap_config.webui_host,
         port=runtime_app.bootstrap_config.webui_port,
         log_level="info",
+        log_config=None,
     )
     server = uvicorn.Server(config)
     await server.serve()
@@ -268,7 +272,7 @@ async def run_runtime_app(runtime_app: RuntimeApp) -> None:
 
 
 async def amain() -> None:
-    logging.basicConfig(level=logging.INFO)
+    configure_logging()
     try:
         bootstrap_config = BootstrapConfig.from_env(os.environ)
         runtime_app = await build_runtime_app(bootstrap_config, env=os.environ)
@@ -278,6 +282,15 @@ async def amain() -> None:
     logger.info("Starting Summary Relay Bot with bootstrap config: %s", bootstrap_config.safe_dict())
     logger.info("Telegram polling startup state: %s", runtime_app.telegram_startup.safe_dict())
     await run_runtime_app(runtime_app)
+
+
+def configure_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format=LOG_FORMAT,
+        datefmt=LOG_DATE_FORMAT,
+        force=True,
+    )
 
 
 def main() -> NoReturn:
