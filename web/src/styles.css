@@ -1638,6 +1638,180 @@ pre {
   box-shadow: 0 10px 22px rgba(20, 160, 152, 0.2);
 }
 
+/* ---------- Semi Select controls ---------- */
+.page .semi-select,
+.compact-modal .semi-select {
+  min-width: 0;
+  min-height: 36px;
+  max-width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.page .semi-select:not(.semi-select-multiple),
+.compact-modal .semi-select:not(.semi-select-multiple) {
+  height: 36px;
+}
+
+.page .semi-select:not(.semi-select-disabled):hover,
+.compact-modal .semi-select:not(.semi-select-disabled):hover {
+  border-color: var(--primary);
+  background: var(--surface);
+}
+
+.page .semi-select-open,
+.page .semi-select-focus,
+.page .semi-select:focus,
+.compact-modal .semi-select-open,
+.compact-modal .semi-select-focus,
+.compact-modal .semi-select:focus {
+  border-color: var(--primary);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.12);
+  outline: 0;
+}
+
+.page .semi-select-open:not(.semi-select-disabled):hover,
+.page .semi-select-focus:not(.semi-select-disabled):hover,
+.compact-modal .semi-select-open:not(.semi-select-disabled):hover,
+.compact-modal .semi-select-focus:not(.semi-select-disabled):hover {
+  border-color: var(--primary);
+  background: var(--surface);
+}
+
+.page .semi-select-disabled,
+.page .semi-select-disabled:hover,
+.page .semi-select-disabled:focus,
+.compact-modal .semi-select-disabled,
+.compact-modal .semi-select-disabled:hover,
+.compact-modal .semi-select-disabled:focus {
+  border-color: var(--border);
+  color: var(--muted-2);
+  background: var(--neutral-soft);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.page .semi-select-selection,
+.compact-modal .semi-select-selection {
+  min-width: 0;
+  margin-left: 12px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.page .semi-select-selection-placeholder,
+.compact-modal .semi-select-selection-placeholder {
+  color: var(--muted-2);
+}
+
+.page .semi-select-disabled .semi-select-selection,
+.page .semi-select-disabled .semi-select-selection-placeholder,
+.compact-modal .semi-select-disabled .semi-select-selection,
+.compact-modal .semi-select-disabled .semi-select-selection-placeholder {
+  color: var(--muted-2);
+  cursor: not-allowed;
+}
+
+.page .semi-select-selection-text,
+.compact-modal .semi-select-selection-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page .semi-select-arrow,
+.page .semi-select-clear,
+.compact-modal .semi-select-arrow,
+.compact-modal .semi-select-clear {
+  width: 32px;
+  color: var(--muted-2);
+  transition: color 0.14s ease;
+}
+
+.page .semi-select-open .semi-select-arrow,
+.page .semi-select-focus .semi-select-arrow,
+.page .semi-select-clear:hover,
+.compact-modal .semi-select-open .semi-select-arrow,
+.compact-modal .semi-select-focus .semi-select-arrow,
+.compact-modal .semi-select-clear:hover {
+  color: var(--primary);
+}
+
+.page .semi-select-disabled .semi-select-arrow,
+.page .semi-select-disabled .semi-select-clear,
+.compact-modal .semi-select-disabled .semi-select-arrow,
+.compact-modal .semi-select-disabled .semi-select-clear {
+  color: var(--muted-2);
+}
+
+body .semi-select-dropdown,
+body .semi-select-option-list-wrapper {
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+}
+
+body .semi-select-option {
+  margin: 2px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 18px;
+  word-break: normal;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+body .semi-select-option:hover,
+body .semi-select-option-focused {
+  background: var(--surface-2);
+}
+
+body .semi-select-option-selected {
+  color: var(--primary);
+  background: var(--primary-soft);
+  font-weight: 800;
+}
+
+body .semi-select-option-selected:hover,
+body .semi-select-option-selected.semi-select-option-focused {
+  background: #e6e9ff;
+}
+
+body .semi-select-option-selected .semi-select-option-icon {
+  color: var(--primary);
+}
+
+body .semi-select-option-disabled,
+body .semi-select-option-disabled:hover {
+  color: var(--muted-2);
+  background: transparent;
+  cursor: not-allowed;
+}
+
+body .semi-select-option-icon {
+  margin-right: 8px;
+}
+
+body .semi-select-option-text {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .engine-tabs .semi-tabs-bar {
   margin-bottom: 20px;
   border-bottom-color: var(--border);
@@ -1914,7 +2088,6 @@ pre {
 
 .compact-modal .semi-input-wrapper,
 .compact-modal .semi-input-number,
-.compact-modal .semi-select-selection,
 .bot-create-modal .semi-input-wrapper,
 .bot-create-modal .semi-input-number {
   border-color: var(--border-strong);
@@ -1924,7 +2097,6 @@ pre {
 
 .compact-modal .semi-input-wrapper:hover,
 .compact-modal .semi-input-number:hover,
-.compact-modal .semi-select-selection:hover,
 .bot-create-modal .semi-input-wrapper:hover,
 .bot-create-modal .semi-input-number:hover {
   border-color: var(--primary);
@@ -2043,16 +2215,14 @@ pre {
   gap: 8px;
 }
 
-.compact-filter-card .semi-input-wrapper,
-.compact-filter-card .semi-select-selection {
+.compact-filter-card .semi-input-wrapper {
   min-height: 36px;
   border-color: var(--border-strong);
   border-radius: var(--radius-sm);
   background: var(--surface);
 }
 
-.compact-filter-card .semi-input-wrapper:hover,
-.compact-filter-card .semi-select-selection:hover {
+.compact-filter-card .semi-input-wrapper:hover {
   border-color: var(--primary);
 }
 
@@ -2188,13 +2358,11 @@ pre {
 }
 
 .group-settings-form .semi-input-number,
-.group-settings-form .semi-select,
-.group-settings-form .semi-select-selection {
+.group-settings-form .semi-select {
   width: 100%;
 }
 
-.group-settings-form .semi-input-number,
-.group-settings-form .semi-select-selection {
+.group-settings-form .semi-input-number {
   border-color: var(--border-strong);
   border-radius: var(--radius-sm);
   background: var(--surface);
