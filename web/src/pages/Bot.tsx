@@ -267,7 +267,7 @@ export function Bot() {
             <div className="object-sub">通过 WebUI 创建第一个 Bot 实例，配置 token 与 Owner ID。</div>
           </div>
           <div className="object-actions">
-            <Button icon={<IconRefresh />} onClick={() => load()}>
+            <Button className="page-refresh-button" icon={<IconRefresh />} onClick={() => load()}>
               刷新
             </Button>
             <Button theme="solid" type="primary" icon={<IconPlus />} onClick={openCreateModal}>
@@ -321,7 +321,7 @@ export function Bot() {
           <Button icon={<IconPlus />} onClick={openCreateModal}>
             新增 Bot
           </Button>
-          <Button icon={<IconRefresh />} onClick={() => load()}>
+          <Button className="page-refresh-button" icon={<IconRefresh />} onClick={() => load()}>
             刷新
           </Button>
           <Button onClick={() => validate(selected)} loading={testing} icon={<IconTickCircle />}>
