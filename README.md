@@ -4,12 +4,13 @@
 
 Personal Telegram bot that quietly watches group chats, sends private incremental summaries to one administrator, and relays private user messages through the bot so the administrator can reply without exposing a personal account.
 
-This is a v1 polling-based service. It intentionally keeps webhooks, multiple administrators, Redis queues, dashboards, group-public summaries, media transcription, and media file-body storage out of scope.
+This is a v1 polling-based service with a single-process WebUI configuration center. It intentionally keeps webhooks, multiple administrators, RBAC, session cookies, Redis queues, group-public summaries, media transcription, and media file-body storage out of scope.
 
 ## Features
 
 - Telegram Bot API polling; no public webhook endpoint required for v1
-- Single configured administrator (`OWNER_ID`) with server-side authorization on every admin action
+- Single configured Telegram administrator with server-side authorization on every admin action
+- WebUI configuration center served by the same Python process as the Bot API polling runtime
 - Group and supergroup discovery by Telegram `chat_id`
 - Quiet group collection by default; groups are discovered disabled until explicitly enabled
 - Group media represented for summaries with placeholders such as `[photo]`, `[voice]`, `[document: filename]`, `[video]`, and `[sticker]`
@@ -21,7 +22,8 @@ This is a v1 polling-based service. It intentionally keeps webhooks, multiple ad
 - Administrator replies routed by mapped message replies or `/reply <user_id> <message>`
 - PostgreSQL-backed metadata, raw update persistence, summary jobs/results, and delivery attempts
 - Configurable raw update payload retention that redacts old raw JSON payloads without deleting business metadata
-- Privacy-aware Anthropic summary client with whitelisted LLM payload fields and prompt caching
+- Database-managed Bot, LLM Provider, Summary Profile, group settings, and audit log records
+- Privacy-aware summary client with whitelisted LLM payload fields and prompt caching
 
 ## Architecture
 
@@ -32,9 +34,7 @@ This is a v1 polling-based service. It intentionally keeps webhooks, multiple ad
 - Python 3.12+
 - PostgreSQL 16+
 - Docker and Docker Compose for container deployment
-- Telegram bot token from BotFather
-- Administrator Telegram numeric user ID
-- Anthropic API key for group summaries
+- Telegram bot token from BotFather, administrator Telegram numeric user ID, and LLM API key to enter in the WebUI
 
 ## Configuration
 
@@ -44,14 +44,23 @@ Copy `.env.example` to `.env` and fill in safe local or production values.
 cp .env.example .env
 ```
 
-Required variables:
+Required bootstrap variables:
 
 | Variable | Description |
 | --- | --- |
-| `BOT_TOKEN` | Telegram Bot API token from BotFather. |
-| `OWNER_ID` | Single administrator's Telegram numeric user ID. |
 | `DATABASE_URL` | Async SQLAlchemy database URL, for example `postgresql+asyncpg://summary_bot:change-me@postgres:5432/summary_relay_bot`. |
-| `LLM_API_KEY` | Anthropic API key used by the summary client. |
+| `SETTINGS_ENCRYPTION_KEY` | Stable deployment key used to encrypt Bot tokens and LLM API keys before storing them in the database. |
+| `WEBUI_ADMIN_TOKEN` | Single WebUI administrator bearer token. The login form stores it in browser `sessionStorage`. |
+| `WEBUI_HOST` | WebUI/API listen host. Use `0.0.0.0` in containers that expose the port. |
+| `WEBUI_PORT` | WebUI/API listen port. |
+
+Bot token, owner ID, LLM API key, provider model, summary profiles, and group summary settings are database-managed runtime configuration. Configure them through the WebUI after migrations are applied. Empty databases or databases with no enabled bot still start the WebUI; Telegram polling starts only after an enabled bot can be loaded and decrypted.
+
+Generate `SETTINGS_ENCRYPTION_KEY` with:
+
+```bash
+python3 -c "from summary_relay_bot.services.secrets import SecretService; print(SecretService.generate_key())"
+```
 
 Important optional variables:
 
@@ -64,12 +73,10 @@ Important optional variables:
 | `SCHEDULER_TIMEZONE` | `UTC` | Scheduler timezone. |
 | `SCHEDULER_MISFIRE_GRACE_SECONDS` | `300` | Scheduler misfire grace period. |
 | `SCHEDULER_COALESCE` | `true` | Coalesce missed scheduled runs after downtime. |
-| `LLM_PROVIDER` | `anthropic` | LLM provider name. V1 ships with the Anthropic client boundary. |
-| `LLM_MODEL` | `claude-opus-4-8` | Anthropic model used for summaries. |
-| `LLM_TIMEOUT_SECONDS` | `30` | Summary request timeout. |
-| `SUMMARY_PROMPT_VERSION` | `v1` | Prompt version stored on summary jobs/results. |
+| `LLM_TIMEOUT_SECONDS` | `30` | Process default summary request timeout. WebUI provider settings are stored in the database. |
+| `SUMMARY_PROMPT_VERSION` | `v1` | Process default prompt version. WebUI profile settings are stored in the database. |
 
-Do not commit real tokens, database passwords, or API keys.
+Do not commit real tokens, database passwords, encryption keys, administrator tokens, or API keys.
 
 ## Production Deployment
 
@@ -103,14 +110,17 @@ cp .env.example .env
 Set production-safe values for at least:
 
 ```env
-BOT_TOKEN=replace-with-real-bot-token
-OWNER_ID=replace-with-admin-telegram-user-id
 DATABASE_URL=postgresql+asyncpg://summary_bot:replace-with-db-password@postgres:5432/summary_relay_bot
-LLM_API_KEY=replace-with-real-llm-api-key
+SETTINGS_ENCRYPTION_KEY=replace-with-stable-generated-encryption-key
+WEBUI_ADMIN_TOKEN=replace-with-long-random-admin-token
+WEBUI_HOST=0.0.0.0
+WEBUI_PORT=8080
 POSTGRES_PASSWORD=replace-with-db-password
 ```
 
 `DATABASE_URL` and `POSTGRES_PASSWORD` must use the same database password when using the bundled PostgreSQL service.
+
+The production image is a single Python runtime image. Its Docker build first runs `npm ci` and `npm run build` in a Node build stage, then copies `web/dist` into the Python image. Runtime containers do not require Node.
 
 ### Start with a published image
 
@@ -125,6 +135,8 @@ docker compose up -d bot
 ```
 
 Run exactly one polling process for one bot token. Telegram polling and webhooks are mutually exclusive, so unset any webhook before using polling or set `ALLOW_WEBHOOK_DELETE=true` deliberately.
+
+Open the WebUI at `http://<host>:<WEBUI_PORT>/` and log in with `WEBUI_ADMIN_TOKEN`. API requests are served under `/api/*`; all other built WebUI routes fall back to the React SPA so browser refreshes such as `/groups/<id>` keep working.
 
 ### Upgrade production
 
@@ -221,13 +233,29 @@ When using Docker Compose, run migrations through the bot image:
 docker compose run --rm bot alembic upgrade head
 ```
 
+## WebUI Configuration Center
+
+The WebUI is part of the monolith: the same Python service runs Telegram polling when possible, serves `/api/*`, and serves the built React/Vite app from `web/dist`. The `prototype/` directory is only a static visual and interaction reference and is not included in the production build.
+
+WebUI authentication is a single bearer token from `WEBUI_ADMIN_TOKEN`. The frontend keeps the token in `sessionStorage`; v1 does not provide username/password login, multiple administrators, RBAC, or session cookies.
+
+Secrets are replacement-only:
+
+- Bot tokens and LLM API keys are encrypted before being stored in the database with `SETTINGS_ENCRYPTION_KEY`.
+- API responses, normal logs, exceptions, and audit records must stay redacted.
+- The WebUI shows configured/unconfigured state and update timestamps only. It never displays plaintext secrets.
+- Leaving a secret input blank means "do not modify"; entering a non-empty value replaces the stored secret.
+
+`needs_restart` means the running polling process has not picked up a restart-required Bot runtime change. Replacing a Bot token, changing owner ID, or enabling a different Bot requires a service restart. LLM Provider, Summary Profile, and group summary settings changes do not require restart.
+
 ## Telegram Setup
 
-1. Create a bot with BotFather and set `BOT_TOKEN`.
-2. Find the administrator's numeric Telegram user ID and set `OWNER_ID`.
-3. Have the administrator send `/start` to the bot privately before expecting summary or relay notifications.
-4. Add the bot to groups that should be collected.
-5. If ordinary group messages are not received, review BotFather privacy mode and re-add the bot after changing privacy settings.
+1. Create a bot with BotFather.
+2. Find the administrator's numeric Telegram user ID.
+3. Log in to the WebUI and configure the Bot token and owner ID.
+4. Have the administrator send `/start` to the bot privately before expecting summary or relay notifications.
+5. Add the bot to groups that should be collected.
+6. If ordinary group messages are not received, review BotFather privacy mode and re-add the bot after changing privacy settings.
 
 The bot is quiet in groups by design. Summaries and management responses are sent only in the administrator's private chat.
 
@@ -257,7 +285,7 @@ A summary job:
 
 1. Reads group messages after the last successful cursor.
 2. Builds a privacy-filtered LLM payload from `message_type` and `summary_content` only.
-3. Calls the configured Anthropic summary client.
+3. Calls the configured summary client.
 4. Sends the generated summary privately to the administrator.
 5. Advances the cursor only if Telegram delivery succeeds and the cursor has not changed concurrently.
 
@@ -299,7 +327,8 @@ Cleanup redacts old raw update JSON payload bodies only. It preserves:
 - The service stores media metadata and Telegram file identifiers, but not media file bodies.
 - Private relay content is not sent to the LLM.
 - Summary LLM payloads are built from a whitelist: message type and summary content.
-- Normal logs must not include bot tokens, database passwords, LLM API keys, raw update JSON, private relay content, Telegram numeric IDs, file IDs, full prompt bodies, or raw provider responses.
+- Bot tokens and LLM API keys are encrypted in the database and are never returned as plaintext by the WebUI API.
+- Normal logs and audit records must not include bot tokens, database passwords, `SETTINGS_ENCRYPTION_KEY`, `WEBUI_ADMIN_TOKEN`, LLM API keys, raw update JSON, private relay content, Telegram numeric IDs, file IDs, full prompt bodies, or raw provider responses.
 - Configuration rendering redacts secrets and sensitive numeric identifiers.
 
 ## Manual Verification Checklist
@@ -335,8 +364,9 @@ Deferred from v1:
 - Multiple administrators, roles, or tenant boundaries
 - Webhook delivery
 - Redis queues or horizontal workers
-- Web dashboard or non-Telegram management UI
+- Separate frontend service, Nginx, or HTTPS production scheme
 - Media understanding such as OCR, image analysis, or voice transcription
 - Downloading or storing Telegram media file bodies
 - Current-chat mode for replies
 - Public group summary publication
+- Secret plaintext viewing or key rotation

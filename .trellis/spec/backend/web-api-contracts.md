@@ -80,3 +80,66 @@ return api_error_response(
 ```
 
 Use service-layer validation for field-specific safe messages, and never include raw secret-bearing request values in API responses, logs, exceptions, or audit logs.
+
+## Scenario: WebUI Static Deployment
+
+### 1. Scope / Trigger
+
+- Trigger: changing FastAPI static mounting, SPA fallback, Docker image assembly, or WebUI bootstrap env.
+- Applies to `src/summary_relay_bot/web/app.py`, `src/summary_relay_bot/web/static.py`, `Dockerfile`, `docker-compose.yml`, `.env.example`, and deployment docs.
+- Secret-bearing bootstrap env includes `WEBUI_ADMIN_TOKEN` and `SETTINGS_ENCRYPTION_KEY`.
+
+### 2. Signatures
+
+- `GET /api/*` and other `/api/*` methods: routed only to existing authenticated API routers.
+- `GET /`: returns built React/Vite `index.html` when `web/dist/index.html` exists.
+- `GET /groups/{id}` and other non-API extensionless paths: return `index.html` for SPA routing.
+- `GET /assets/<file>` and other file-like paths: return the built file when it exists, otherwise 404.
+
+### 3. Contracts
+
+- Static mounting must be registered after `/api` routers so API routes keep their authentication and response semantics.
+- SPA fallback must not handle `/api` or `/api/*`; missing API paths should remain API 404s, not frontend HTML.
+- If `web/dist/index.html` is absent, static mounting is a no-op so backend tests and API-only development still run.
+- Docker build uses a Node stage for `npm ci` and `npm run build`, then copies only `web/dist` into the Python runtime image.
+- The Python runtime image must not install or depend on Node/npm.
+- `.dockerignore` must exclude local `web/node_modules/`, local `web/dist/`, and local data directories from the build context.
+
+### 4. Validation & Error Matrix
+
+- Missing or invalid `/api/*` auth -> existing `401 {"error": {"code": "unauthorized", "message": "认证失败"}}`.
+- Missing static asset with file extension -> 404.
+- Missing SPA route without file extension -> `index.html`.
+- Missing `web/dist/index.html` at runtime -> no static routes are mounted.
+
+### 5. Good/Base/Bad Cases
+
+- Good: refreshing `/groups/123` returns frontend HTML, and `GET /api/dashboard` without auth still returns the JSON 401.
+- Base: running backend tests without a frontend build still creates the FastAPI app.
+- Bad: a catch-all route returns `index.html` for `/api/dashboard`, bypassing API auth or changing API error shape.
+
+### 6. Tests Required
+
+- Smoke test for `/` returning built HTML.
+- Smoke test for unauthenticated `/api/dashboard` returning the standard JSON 401.
+- Smoke test for an SPA child route returning the same `index.html`.
+- Static checks for Dockerfile stages when Docker is unavailable: source paths exist, runtime stage has no Node/npm commands, and `.dockerignore` excludes local frontend/data artifacts.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+app.mount("/", StaticFiles(directory="web/dist", html=True), name="webui")
+```
+
+This can let the frontend catch-all compete with `/api/*` paths and obscure API errors.
+
+#### Correct
+
+```python
+app.include_router(api_router)
+mount_webui_static(app)
+```
+
+Register API routes first, explicitly exclude `/api/*` from fallback, and return `index.html` only for non-file SPA routes.
