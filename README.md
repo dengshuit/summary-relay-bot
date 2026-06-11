@@ -69,12 +69,9 @@ Important optional variables:
 | `ALLOW_WEBHOOK_DELETE` | `false` | When `false`, startup fails if Telegram reports an active webhook. |
 | `DROP_PENDING_UPDATES_ON_WEBHOOK_DELETE` | `false` | Keep `false` unless intentionally dropping pending updates while deleting a webhook. |
 | `RAW_UPDATE_RETENTION_DAYS` | `30` | Raw update JSON payload retention window. Old payload bodies are redacted only. |
-| `SUMMARY_DEFAULT_INTERVAL_MINUTES` | `300` | Default interval used by `/enable_group` when no interval is provided. |
 | `SCHEDULER_TIMEZONE` | `UTC` | Scheduler timezone. |
 | `SCHEDULER_MISFIRE_GRACE_SECONDS` | `300` | Scheduler misfire grace period. |
 | `SCHEDULER_COALESCE` | `true` | Coalesce missed scheduled runs after downtime. |
-| `LLM_TIMEOUT_SECONDS` | `30` | Process default summary request timeout. WebUI provider settings are stored in the database. |
-| `SUMMARY_PROMPT_VERSION` | `v1` | Process default prompt version. WebUI profile settings are stored in the database. |
 
 Do not commit real tokens, database passwords, encryption keys, administrator tokens, or API keys.
 
@@ -268,7 +265,7 @@ Administrator commands work only in the administrator's private chat with the bo
 | `/start` | Show bot status. |
 | `/help` | Show administrator help. |
 | `/groups` | List discovered groups, enabled state, and interval. |
-| `/enable_group <chat_id> [minutes]` | Enable scheduled summaries for a known group. |
+| `/enable_group <chat_id> <minutes>` | Enable scheduled summaries for a known group. |
 | `/disable_group <chat_id>` | Disable scheduled summaries for a group. |
 | `/set_interval <chat_id> <minutes>` | Update a group's interval without implicitly enabling it. |
 | `/summary` | Manually summarize all enabled groups. |

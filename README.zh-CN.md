@@ -69,12 +69,9 @@ python3 -c "from summary_relay_bot.services.secrets import SecretService; print(
 | `ALLOW_WEBHOOK_DELETE` | `false` | 为 `false` 时，如果 Telegram 仍有 active webhook，启动会失败。 |
 | `DROP_PENDING_UPDATES_ON_WEBHOOK_DELETE` | `false` | 除非明确要在删除 webhook 时丢弃 pending updates，否则保持 `false`。 |
 | `RAW_UPDATE_RETENTION_DAYS` | `30` | 原始 update JSON payload 保留天数，到期仅脱敏 payload 正文。 |
-| `SUMMARY_DEFAULT_INTERVAL_MINUTES` | `300` | `/enable_group` 未指定间隔时使用的默认摘要间隔。 |
 | `SCHEDULER_TIMEZONE` | `UTC` | 调度器时区。 |
 | `SCHEDULER_MISFIRE_GRACE_SECONDS` | `300` | 调度器 misfire 宽限时间。 |
 | `SCHEDULER_COALESCE` | `true` | 服务停机恢复后是否合并错过的调度。 |
-| `LLM_TIMEOUT_SECONDS` | `30` | 进程级默认摘要请求超时时间。WebUI provider 设置存放在数据库中。 |
-| `SUMMARY_PROMPT_VERSION` | `v1` | 进程级默认 prompt 版本。WebUI profile 设置存放在数据库中。 |
 
 不要提交真实 token、数据库密码、加密密钥、管理员 token 或 API key。
 
@@ -268,7 +265,7 @@ Secret 字段只支持替换：
 | `/start` | 显示 bot 状态。 |
 | `/help` | 显示管理员帮助。 |
 | `/groups` | 列出已发现群组、启用状态和摘要间隔。 |
-| `/enable_group <chat_id> [minutes]` | 启用已知群组的定时摘要。 |
+| `/enable_group <chat_id> <minutes>` | 启用已知群组的定时摘要。 |
 | `/disable_group <chat_id>` | 禁用某个群组的定时摘要。 |
 | `/set_interval <chat_id> <minutes>` | 更新群组摘要间隔，但不会隐式启用群组。 |
 | `/summary` | 手动摘要所有已启用群组。 |

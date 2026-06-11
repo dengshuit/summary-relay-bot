@@ -6,7 +6,6 @@ from typing import Any
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from summary_relay_bot.config import AppConfig
 from summary_relay_bot.db.repositories import (
     create_private_message,
     find_reply_map,
@@ -53,7 +52,7 @@ async def route_admin_reply(
     *,
     session: AsyncSession,
     bot: Bot,
-    config: AppConfig,
+    owner_id: int,
     message: Any,
 ) -> str:
     reply_to = getattr(message, "reply_to_message", None)
@@ -62,7 +61,7 @@ async def route_admin_reply(
 
     reply_map = await _find_reply_map_with_short_retry(
         session,
-        admin_chat_id=config.owner_id,
+        admin_chat_id=owner_id,
         admin_message_id=int(getattr(reply_to, "message_id")),
     )
     if reply_map is None:
@@ -85,7 +84,7 @@ async def route_admin_reply(
         else:
             delivered = await bot.copy_message(
                 chat_id=target_user.telegram_user_id,
-                from_chat_id=config.owner_id,
+                from_chat_id=owner_id,
                 message_id=int(getattr(message, "message_id")),
             )
     except Exception as exc:

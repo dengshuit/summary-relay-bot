@@ -10,10 +10,7 @@ from summary_relay_bot.db.base import Base
 @pytest.fixture
 def app_config() -> AppConfig:
     return AppConfig(
-        bot_token="123:test-token",
-        owner_id=1001,
         database_url="sqlite+aiosqlite:///:memory:",
-        llm_api_key="test-llm-key",
     )
 
 

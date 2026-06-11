@@ -56,8 +56,6 @@ class GroupChat(Base):
     chat_type: Mapped[str] = mapped_column(String(40), nullable=False)
     title: Mapped[str | None] = mapped_column(String(512))
     username: Mapped[str | None] = mapped_column(String(255))
-    summaries_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    summary_interval_minutes: Mapped[int | None] = mapped_column(Integer)
     discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
@@ -71,10 +69,6 @@ class GroupChat(Base):
 
     __table_args__ = (
         CheckConstraint("chat_type in ('group', 'supergroup')", name="ck_groups_chat_type"),
-        CheckConstraint(
-            "summary_interval_minutes is null or summary_interval_minutes > 0",
-            name="ck_groups_positive_interval",
-        ),
     )
 
 

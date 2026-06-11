@@ -244,8 +244,8 @@ async def test_build_runtime_app_uses_database_token_and_owner_for_bot_and_handl
         observed["owner_id_for_bot"] = config.owner_id
         return FakeBot()
 
-    def fake_register_routers(dispatcher, config) -> None:
-        observed["owner_id_for_handlers"] = config.owner_id
+    def fake_register_routers(dispatcher, config, *, owner_id: int) -> None:
+        observed["owner_id_for_handlers"] = owner_id
 
     monkeypatch.setattr("summary_relay_bot.main.create_bot", fake_create_bot)
     monkeypatch.setattr("summary_relay_bot.main.register_routers", fake_register_routers)
@@ -264,7 +264,7 @@ async def test_build_runtime_app_uses_database_token_and_owner_for_bot_and_handl
             "owner_id_for_bot": 3003,
             "owner_id_for_handlers": 3003,
         }
-        assert runtime_app.resources.config.owner_id == 3003
+        assert runtime_app.resources.owner_id == 3003
         assert runtime_app.resources.bot_runtime_config is not None
         assert runtime_app.resources.bot_runtime_config.bot_token == "123456:runtime-secret-token"
     finally:
@@ -279,7 +279,8 @@ async def test_start_polling_uses_runtime_owner_id_for_command_menu(monkeypatch)
     engine = FakeEngine()
     resources = SimpleNamespace(
         bot=bot,
-        config=SimpleNamespace(owner_id=3003),
+        config=SimpleNamespace(),
+        owner_id=3003,
         scheduler=scheduler,
         dispatcher=dispatcher,
         engine=engine,
@@ -287,7 +288,6 @@ async def test_start_polling_uses_runtime_owner_id_for_command_menu(monkeypatch)
 
     async def fake_ensure_polling_delivery(observed_bot, observed_config) -> None:
         observed["preflight_bot"] = observed_bot
-        observed["preflight_owner_id"] = observed_config.owner_id
 
     async def fake_setup_command_menus(observed_bot, owner_id: int) -> None:
         observed["command_menu_bot"] = observed_bot
@@ -299,7 +299,6 @@ async def test_start_polling_uses_runtime_owner_id_for_command_menu(monkeypatch)
     await start_polling(resources)
 
     assert observed["preflight_bot"] is bot
-    assert observed["preflight_owner_id"] == 3003
     assert observed["command_menu_bot"] is bot
     assert observed["command_menu_owner_id"] == 3003
     assert scheduler.started is True

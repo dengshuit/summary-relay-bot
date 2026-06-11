@@ -7,7 +7,6 @@ import httpx
 import pytest
 
 from summary_relay_bot.llm.client import PrivacyAwareSummaryClient, SummaryLLMError, assert_summary_payload_is_whitelisted
-from summary_relay_bot.llm.prompts import SUMMARY_SYSTEM_PROMPT
 from summary_relay_bot.services.runtime_config import LLMProviderRuntimeConfig, SummaryProfileRuntimeConfig
 
 
@@ -92,8 +91,11 @@ def runtime_summary_profile(**overrides) -> SummaryProfileRuntimeConfig:
     return SummaryProfileRuntimeConfig(**values)
 
 
-def test_build_request_whitelists_summary_fields_only(app_config) -> None:
-    client = PrivacyAwareSummaryClient(app_config, client=FakeAnthropicClient())
+def test_build_request_whitelists_summary_fields_only() -> None:
+    client = PrivacyAwareSummaryClient(
+        runtime_summary_profile(provider={"provider_type": "anthropic"}),
+        client=FakeAnthropicClient(),
+    )
 
     request = client.build_request(
         group_title="Group",
@@ -115,9 +117,10 @@ def test_build_request_whitelists_summary_fields_only(app_config) -> None:
     assert "private relay" not in rendered
 
 
-async def test_summarize_uses_configured_model_timeout_prompt_version_and_cache(app_config) -> None:
+async def test_summarize_uses_runtime_profile_model_timeout_prompt_version_and_cache() -> None:
     fake_client = FakeAnthropicClient(response_text="- concise summary")
-    client = PrivacyAwareSummaryClient(app_config, client=fake_client)
+    runtime_profile = runtime_summary_profile(provider={"provider_type": "anthropic"})
+    client = PrivacyAwareSummaryClient(runtime_profile, client=fake_client)
 
     summary = await client.summarize_group_messages(
         group_title="Group",
@@ -125,36 +128,44 @@ async def test_summarize_uses_configured_model_timeout_prompt_version_and_cache(
     )
 
     assert summary == "- concise summary"
-    assert fake_client.options == {"timeout": app_config.llm_timeout_seconds, "max_retries": 2}
+    assert fake_client.options == {"timeout": runtime_profile.llm_provider.timeout_seconds, "max_retries": 1}
     [call] = fake_client.messages.calls
-    assert call["model"] == app_config.llm_model
+    assert call["model"] == runtime_profile.model
     assert call["thinking"] == {"type": "adaptive"}
     assert call["output_config"] == {"effort": "medium"}
     assert call["system"] == [
         {
             "type": "text",
-            "text": SUMMARY_SYSTEM_PROMPT,
+            "text": runtime_profile.system_prompt,
             "cache_control": {"type": "ephemeral"},
         }
     ]
-    assert f"Prompt version: {app_config.summary_prompt_version}" in call["messages"][0]["content"]
+    assert f"Prompt version: {runtime_profile.prompt_version}" in call["messages"][0]["content"]
 
 
-async def test_summarize_rejects_empty_intervals(app_config) -> None:
-    client = PrivacyAwareSummaryClient(app_config, client=FakeAnthropicClient())
+async def test_summarize_rejects_empty_intervals() -> None:
+    client = PrivacyAwareSummaryClient(runtime_summary_profile(), client=FakeAnthropicClient())
 
     with pytest.raises(SummaryLLMError, match="no messages"):
         await client.summarize_group_messages(group_title="Group", group_messages=[])
 
 
-async def test_summarize_rejects_empty_llm_output(app_config) -> None:
-    client = PrivacyAwareSummaryClient(app_config, client=FakeAnthropicClient(response_text="   "))
+async def test_summarize_rejects_empty_llm_output() -> None:
+    client = PrivacyAwareSummaryClient(
+        runtime_summary_profile(provider={"provider_type": "anthropic"}),
+        client=FakeAnthropicClient(response_text="   "),
+    )
 
     with pytest.raises(SummaryLLMError, match="empty"):
         await client.summarize_group_messages(
             group_title="Group",
             group_messages=[group_message()],
         )
+
+
+def test_client_rejects_non_runtime_profile_config(app_config) -> None:
+    with pytest.raises(SummaryLLMError, match="invalid_llm_config"):
+        PrivacyAwareSummaryClient(app_config)
 
 
 async def test_openai_compatible_uses_runtime_provider_base_url_and_chat_completions_payload() -> None:

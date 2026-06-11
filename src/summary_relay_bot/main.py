@@ -33,6 +33,7 @@ TELEGRAM_STARTUP_BOT_SECRET_ERROR = "bot_secret_error"
 class AppResources:
     config: AppConfig
     bot_runtime_config: BotRuntimeConfig | None
+    owner_id: int
     bot: Bot = field(repr=False)
     dispatcher: Dispatcher = field(repr=False)
     engine: AsyncEngine = field(repr=False)
@@ -117,25 +118,39 @@ async def load_telegram_startup_state(
 async def build_app(
     config: AppConfig,
     *,
+    owner_id: int,
     bot_runtime_config: BotRuntimeConfig | None = None,
     bot: Bot | None = None,
     engine: AsyncEngine | None = None,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
+    secret_service: SecretService,
 ) -> AppResources:
-    bot = bot or create_bot(config)
+    if bot is None:
+        if bot_runtime_config is None:
+            raise ConfigError("bot runtime config is required to create bot")
+        bot = create_bot(bot_runtime_config)
     dispatcher = Dispatcher()
     engine = engine or create_engine(config.database_url)
     session_factory = session_factory or create_session_factory(engine)
-    scheduler = BotScheduler(config=config, bot=bot, session_factory=session_factory)
+    scheduler = BotScheduler(
+        config=config,
+        bot=bot,
+        session_factory=session_factory,
+        secret_service=secret_service,
+        owner_id=owner_id,
+    )
 
     dispatcher["config"] = config
+    dispatcher["owner_id"] = owner_id
     dispatcher["session_factory"] = session_factory
     dispatcher["scheduler"] = scheduler
-    register_routers(dispatcher, config)
+    dispatcher["secret_service"] = secret_service
+    register_routers(dispatcher, config, owner_id=owner_id)
 
     return AppResources(
         config=config,
         bot_runtime_config=bot_runtime_config,
+        owner_id=owner_id,
         bot=bot,
         dispatcher=dispatcher,
         engine=engine,
@@ -178,16 +193,16 @@ async def build_runtime_app(
             raise RuntimeError("telegram startup state is ready without bot runtime config")
         app_config = AppConfig.from_bootstrap_runtime(
             bootstrap_config,
-            bot_token=bot_runtime_config.bot_token,
-            owner_id=bot_runtime_config.owner_id,
             env=env,
         )
         resources = await build_app(
             app_config,
+            owner_id=bot_runtime_config.owner_id,
             bot_runtime_config=bot_runtime_config,
             bot=create_bot(bot_runtime_config),
             engine=engine,
             session_factory=session_factory,
+            secret_service=secret_service,
         )
         return RuntimeApp(
             bootstrap_config=bootstrap_config,
@@ -205,7 +220,7 @@ async def build_runtime_app(
 async def start_polling(resources: AppResources) -> None:
     try:
         await ensure_polling_delivery(resources.bot, resources.config)
-        await setup_command_menus(resources.bot, resources.config.owner_id)
+        await setup_command_menus(resources.bot, resources.owner_id)
         await resources.scheduler.start()
         await resources.dispatcher.start_polling(resources.bot)
     finally:

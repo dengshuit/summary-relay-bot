@@ -8,7 +8,6 @@ from typing import Any
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from summary_relay_bot.config import AppConfig
 from summary_relay_bot.db.models import GroupChat
 from summary_relay_bot.db.repositories import (
     advance_summary_cursor_if_current,
@@ -20,13 +19,17 @@ from summary_relay_bot.db.repositories import (
     get_active_summary_job,
     get_group_by_chat_id,
     get_summary_job_for_group,
-    list_groups,
     mark_summary_job_running,
     messages_after_sequence,
 )
 from summary_relay_bot.db.session import session_scope
 from summary_relay_bot.llm.client import PrivacyAwareSummaryClient, SummaryLLMError
-from summary_relay_bot.services.runtime_config import RuntimeConfigError, load_summary_profile_runtime_config
+from summary_relay_bot.services.group_settings import enabled_group_settings, group_summary_settings
+from summary_relay_bot.services.runtime_config import (
+    RuntimeConfigError,
+    SummaryProfileRuntimeConfig,
+    load_summary_profile_runtime_config,
+)
 from summary_relay_bot.services.secrets import SecretError, SecretService
 from summary_relay_bot.services.summary_content import render_admin_summary, render_no_new_messages
 from summary_relay_bot.telegram.errors import classify_telegram_error
@@ -123,14 +126,15 @@ async def run_manual_summary(
     *,
     session: AsyncSession,
     bot: Bot,
-    config: AppConfig,
+    owner_id: int,
+    secret_service: SecretService,
     requested_chat_id: int | None = None,
 ) -> str:
     if requested_chat_id is not None:
         group = await get_group_by_chat_id(session, requested_chat_id)
         groups = [group] if group else []
     else:
-        groups = [group for group in await list_groups(session) if group.summaries_enabled]
+        groups = [settings.group for settings in await enabled_group_settings(session)]
 
     if not groups:
         if requested_chat_id is None:
@@ -143,7 +147,8 @@ async def run_manual_summary(
             await run_summary_for_group(
                 session=session,
                 bot=bot,
-                config=config,
+                owner_id=owner_id,
+                secret_service=secret_service,
                 group=group,
                 trigger_type="manual",
                 notify_no_messages=True,
@@ -156,17 +161,20 @@ async def run_scheduled_summary(
     *,
     bot: Bot,
     session_factory: async_sessionmaker[AsyncSession],
-    config: AppConfig,
+    secret_service: SecretService,
+    owner_id: int,
     chat_id: int,
 ) -> SummaryRunResult:
     async with session_scope(session_factory) as session:
         group = await get_group_by_chat_id(session, chat_id)
-        if group is None or not group.summaries_enabled:
+        settings = await group_summary_settings(session, group=group) if group is not None else None
+        if group is None or settings is None or not settings.enabled:
             return SummaryRunResult(chat_id=chat_id, status="skipped", message="group is disabled")
         return await run_summary_for_group(
             session=session,
             bot=bot,
-            config=config,
+            owner_id=owner_id,
+            secret_service=secret_service,
             group=group,
             trigger_type="scheduled",
             notify_no_messages=False,
@@ -177,7 +185,8 @@ async def run_summary_for_group(
     *,
     session: AsyncSession,
     bot: Bot,
-    config: AppConfig,
+    owner_id: int,
+    secret_service: SecretService,
     group: GroupChat,
     trigger_type: str,
     notify_no_messages: bool,
@@ -188,7 +197,6 @@ async def run_summary_for_group(
         group=group,
         trigger_type=trigger_type,
         starting_sequence=state.last_summary_sequence,
-        prompt_version=config.summary_prompt_version,
     )
     if job is None:
         return SummaryRunResult(
@@ -196,6 +204,31 @@ async def run_summary_for_group(
             status="blocked",
             message="summary already running",
         )
+
+    try:
+        runtime_profile = await load_summary_profile_runtime_config(
+            session,
+            secret_service=secret_service,
+            group=group,
+        )
+    except (RuntimeConfigError, SecretError) as exc:
+        await finish_summary_job(
+            session,
+            job,
+            "failed",
+            cutoff_sequence=state.last_summary_sequence,
+            error_type="runtime_config_error",
+            error_message=str(exc),
+        )
+        await _notify_failure(bot, owner_id, group.chat_id, "Runtime summary config failed")
+        return SummaryRunResult(
+            chat_id=group.chat_id,
+            status="failed",
+            message="runtime summary config failed; cursor unchanged",
+        )
+
+    _apply_runtime_profile(job, runtime_profile)
+    await session.flush()
 
     messages = list(
         await messages_after_sequence(
@@ -214,7 +247,7 @@ async def run_summary_for_group(
         )
 
     cutoff_sequence = max(message.id for message in messages)
-    llm_client = PrivacyAwareSummaryClient(config)
+    llm_client = PrivacyAwareSummaryClient(runtime_profile)
     try:
         summary_text = await llm_client.summarize_group_messages(
             group_title=group.title,
@@ -229,7 +262,7 @@ async def run_summary_for_group(
             error_type="llm_failed",
             error_message=str(exc),
         )
-        await _notify_failure(bot, config.owner_id, group.chat_id, "LLM summary failed")
+        await _notify_failure(bot, owner_id, group.chat_id, "LLM summary failed")
         return SummaryRunResult(
             chat_id=group.chat_id,
             status="failed",
@@ -238,7 +271,7 @@ async def run_summary_for_group(
 
     try:
         delivered = await bot.send_message(
-            config.owner_id,
+            owner_id,
             render_admin_summary(group.title, summary_text),
         )
     except Exception as exc:
@@ -284,9 +317,12 @@ async def run_summary_for_group(
         job=job,
         group=group,
         summary_text=summary_text,
-        delivered_admin_chat_id=config.owner_id,
+        delivered_admin_chat_id=owner_id,
         delivered_message_id=getattr(delivered, "message_id", None),
-        prompt_version=config.summary_prompt_version,
+        prompt_version=runtime_profile.prompt_version,
+        llm_provider_id=runtime_profile.llm_provider.llm_provider_id,
+        summary_profile_id=runtime_profile.summary_profile_id,
+        model=runtime_profile.model,
         interval_start_sequence=job.starting_sequence,
         interval_end_sequence=cutoff_sequence,
     )
@@ -304,6 +340,13 @@ async def _notify_failure(bot: Bot, owner_id: int, chat_id: int, text: str) -> N
         await bot.send_message(owner_id, f"{text} for group {chat_id}. Cursor was not advanced.")
     except Exception:
         pass
+
+
+def _apply_runtime_profile(job, runtime_profile: SummaryProfileRuntimeConfig) -> None:
+    job.prompt_version = runtime_profile.prompt_version
+    job.llm_provider_id = runtime_profile.llm_provider.llm_provider_id
+    job.summary_profile_id = runtime_profile.summary_profile_id
+    job.model = runtime_profile.model
 
 
 async def create_manual_summary_job(
@@ -386,10 +429,7 @@ async def run_web_manual_summary_job(
             )
             return
 
-        job.prompt_version = runtime_profile.prompt_version
-        job.llm_provider_id = runtime_profile.llm_provider.llm_provider_id
-        job.summary_profile_id = runtime_profile.summary_profile_id
-        job.model = runtime_profile.model
+        _apply_runtime_profile(job, runtime_profile)
         await session.flush()
 
         state = await ensure_summary_state(session, group)

@@ -40,15 +40,9 @@ def upgrade() -> None:
         sa.Column("chat_type", sa.String(length=40), nullable=False),
         sa.Column("title", sa.String(length=512), nullable=True),
         sa.Column("username", sa.String(length=255), nullable=True),
-        sa.Column("summaries_enabled", sa.Boolean(), nullable=False),
-        sa.Column("summary_interval_minutes", sa.Integer(), nullable=True),
         sa.Column("discovered_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint("chat_type in ('group', 'supergroup')", name="ck_groups_chat_type"),
-        sa.CheckConstraint(
-            "summary_interval_minutes is null or summary_interval_minutes > 0",
-            name="ck_groups_positive_interval",
-        ),
         sa.UniqueConstraint("chat_id", name="uq_groups_chat_id"),
     )
     op.create_index("ix_groups_chat_id", "groups", ["chat_id"])

@@ -9,9 +9,9 @@ import anthropic
 from anthropic import AsyncAnthropic
 import httpx
 
-from summary_relay_bot.config import AppConfig
 from summary_relay_bot.db.models import GroupMessage
 from summary_relay_bot.llm.prompts import SUMMARY_SYSTEM_PROMPT, build_summary_prompt
+from summary_relay_bot.services.runtime_config import SummaryProfileRuntimeConfig
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +170,7 @@ class OpenAICompatibleSummaryProvider:
 class PrivacyAwareSummaryClient:
     def __init__(
         self,
-        config: AppConfig | Any,
+        config: SummaryProfileRuntimeConfig,
         *,
         client: AnthropicMessagesClient | None = None,
         http_client: OpenAIHTTPClient | None = None,
@@ -233,16 +233,7 @@ def assert_summary_payload_is_whitelisted(payload: SummaryLLMRequest) -> None:
             raise AssertionError(f"summary payload contains non-whitelisted fields: {sorted(extra)}")
 
 
-def _settings_from_config(config: AppConfig | Any) -> SummaryLLMSettings:
-    if isinstance(config, AppConfig):
-        return SummaryLLMSettings(
-            provider_type=_normalize_provider_type(config.llm_provider),
-            api_key=config.llm_api_key,
-            model=config.llm_model,
-            timeout_seconds=config.llm_timeout_seconds,
-            prompt_version=config.summary_prompt_version,
-        )
-
+def _settings_from_config(config: SummaryProfileRuntimeConfig) -> SummaryLLMSettings:
     provider = getattr(config, "llm_provider", None)
     if provider is not None:
         return SummaryLLMSettings(

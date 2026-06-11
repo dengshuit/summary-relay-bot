@@ -17,13 +17,13 @@
         <mxCell id="5" value="Anthropic API&#xa;LLM 摘要" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;" vertex="1" parent="2">
           <mxGeometry x="820" y="55" width="260" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="6" value=".env / 运行配置&#xa;BOT_TOKEN, OWNER_ID, DATABASE_URL, LLM_*" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="2">
+        <mxCell id="6" value=".env bootstrap&#xa;DATABASE_URL, SETTINGS_ENCRYPTION_KEY, WEBUI_*" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="2">
           <mxGeometry x="1180" y="50" width="360" height="80" as="geometry" />
         </mxCell>
         <mxCell id="7" value="summary-relay-bot 进程" style="swimlane;startSize=30;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
           <mxGeometry x="40" y="230" width="1210" height="660" as="geometry" />
         </mxCell>
-        <mxCell id="8" value="main.py 启动装配&#xa;AppConfig, Bot, Dispatcher, Engine, Scheduler" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="7">
+        <mxCell id="8" value="main.py 启动装配&#xa;BootstrapConfig, DB runtime config, Bot, Dispatcher, Scheduler" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="7">
           <mxGeometry x="60" y="55" width="300" height="85" as="geometry" />
         </mxCell>
         <mxCell id="9" value="Aiogram Dispatcher + 路由&#xa;admin, admin_groups, admin_replies, private_user, group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="7">

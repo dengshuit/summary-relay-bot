@@ -9,8 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from summary_relay_bot.config import AppConfig
 from summary_relay_bot.db.session import session_scope
-from summary_relay_bot.services.group_settings import enabled_groups
+from summary_relay_bot.services.group_settings import enabled_group_settings
 from summary_relay_bot.services.retention import cleanup_raw_update_payloads
+from summary_relay_bot.services.secrets import SecretService
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,8 @@ class BotScheduler:
     config: AppConfig
     bot: Bot
     session_factory: async_sessionmaker[AsyncSession]
+    secret_service: SecretService
+    owner_id: int
     scheduler: AsyncIOScheduler = field(init=False)
 
     def __post_init__(self) -> None:
@@ -27,16 +30,15 @@ class BotScheduler:
 
     async def start(self) -> None:
         async with session_scope(self.session_factory) as session:
-            groups = list(await enabled_groups(session))
+            settings = list(await enabled_group_settings(session))
 
-        target_job_ids = {f"summary:{group.chat_id}" for group in groups}
+        target_job_ids = {f"summary:{setting.group.chat_id}" for setting in settings}
         for job in self.scheduler.get_jobs():
             if job.id.startswith("summary:") and job.id not in target_job_ids:
                 self.scheduler.remove_job(job.id)
 
-        for group in groups:
-            interval = group.summary_interval_minutes or self.config.summary_default_interval_minutes
-            self.upsert_summary_job(group.chat_id, interval)
+        for setting in settings:
+            self.upsert_summary_job(setting.group.chat_id, setting.interval_minutes)
         self.upsert_retention_job()
         if not self.scheduler.running:
             self.scheduler.start()
@@ -60,7 +62,8 @@ class BotScheduler:
             kwargs={
                 "bot": self.bot,
                 "session_factory": self.session_factory,
-                "config": self.config,
+                "secret_service": self.secret_service,
+                "owner_id": self.owner_id,
                 "chat_id": chat_id,
             },
         )

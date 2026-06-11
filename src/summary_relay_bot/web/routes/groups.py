@@ -90,8 +90,8 @@ def _settings_schema(group: GroupChat) -> GroupSummarySettingsSchema:
     settings = group.summary_settings
     if settings is None:
         return GroupSummarySettingsSchema(
-            enabled=group.summaries_enabled,
-            interval_minutes=group.summary_interval_minutes or _DEFAULT_INTERVAL_MINUTES,
+            enabled=False,
+            interval_minutes=_DEFAULT_INTERVAL_MINUTES,
             summary_profile_id=None,
             timezone=_DEFAULT_TIMEZONE,
         )

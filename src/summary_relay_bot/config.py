@@ -9,9 +9,7 @@ class ConfigError(ValueError):
     """Raised when required configuration is missing or invalid."""
 
 
-_SECRET_FIELD_NAMES = {"bot_token", "database_url", "llm_api_key", "settings_encryption_key", "webui_admin_token"}
-_SENSITIVE_NUMERIC_FIELD_NAMES = {"owner_id"}
-_REQUIRED_ENV = ("BOT_TOKEN", "OWNER_ID", "DATABASE_URL", "LLM_API_KEY")
+_SECRET_FIELD_NAMES = {"database_url", "settings_encryption_key", "webui_admin_token"}
 _REQUIRED_BOOTSTRAP_ENV = ("DATABASE_URL", "SETTINGS_ENCRYPTION_KEY", "WEBUI_ADMIN_TOKEN")
 
 
@@ -65,7 +63,7 @@ def redact_database_url(value: str) -> str:
     return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
 
 
-def _app_runtime_options(env: Mapping[str, str], *, llm_api_key: str) -> dict[str, object]:
+def _app_runtime_options(env: Mapping[str, str]) -> dict[str, object]:
     return {
         "allow_webhook_delete": _parse_bool(env.get("ALLOW_WEBHOOK_DELETE"), default=False),
         "drop_pending_updates_on_webhook_delete": _parse_bool(
@@ -76,11 +74,6 @@ def _app_runtime_options(env: Mapping[str, str], *, llm_api_key: str) -> dict[st
             "RAW_UPDATE_RETENTION_DAYS",
             minimum=1,
         ),
-        "summary_default_interval_minutes": _parse_int(
-            env.get("SUMMARY_DEFAULT_INTERVAL_MINUTES", "300"),
-            "SUMMARY_DEFAULT_INTERVAL_MINUTES",
-            minimum=1,
-        ),
         "scheduler_timezone": env.get("SCHEDULER_TIMEZONE", "UTC").strip() or "UTC",
         "scheduler_misfire_grace_seconds": _parse_int(
             env.get("SCHEDULER_MISFIRE_GRACE_SECONDS", "300"),
@@ -88,15 +81,6 @@ def _app_runtime_options(env: Mapping[str, str], *, llm_api_key: str) -> dict[st
             minimum=0,
         ),
         "scheduler_coalesce": _parse_bool(env.get("SCHEDULER_COALESCE"), default=True),
-        "llm_provider": env.get("LLM_PROVIDER", "anthropic").strip() or "anthropic",
-        "llm_api_key": llm_api_key,
-        "llm_model": env.get("LLM_MODEL", "claude-opus-4-8").strip() or "claude-opus-4-8",
-        "llm_timeout_seconds": _parse_int(
-            env.get("LLM_TIMEOUT_SECONDS", "30"),
-            "LLM_TIMEOUT_SECONDS",
-            minimum=1,
-        ),
-        "summary_prompt_version": env.get("SUMMARY_PROMPT_VERSION", "v1").strip() or "v1",
     }
 
 
@@ -141,58 +125,24 @@ class BootstrapConfig:
 
 @dataclass(frozen=True, slots=True)
 class AppConfig:
-    bot_token: str
-    owner_id: int
     database_url: str
     allow_webhook_delete: bool = False
     drop_pending_updates_on_webhook_delete: bool = False
     raw_update_retention_days: int = 30
-    summary_default_interval_minutes: int = 300
     scheduler_timezone: str = "UTC"
     scheduler_misfire_grace_seconds: int = 300
     scheduler_coalesce: bool = True
-    llm_provider: str = "anthropic"
-    llm_api_key: str = ""
-    llm_model: str = "claude-opus-4-8"
-    llm_timeout_seconds: int = 30
-    summary_prompt_version: str = "v1"
-
-    @classmethod
-    def from_env(cls, env: Mapping[str, str]) -> "AppConfig":
-        missing = [name for name in _REQUIRED_ENV if not env.get(name)]
-        if missing:
-            raise ConfigError(f"missing required configuration: {', '.join(missing)}")
-
-        bot_token = _require(env, "BOT_TOKEN")
-        database_url = _require(env, "DATABASE_URL")
-        llm_api_key = _require(env, "LLM_API_KEY")
-
-        return cls(
-            bot_token=bot_token,
-            owner_id=_parse_int(env.get("OWNER_ID"), "OWNER_ID", minimum=1),
-            database_url=database_url,
-            **_app_runtime_options(env, llm_api_key=llm_api_key),
-        )
 
     @classmethod
     def from_bootstrap_runtime(
         cls,
         bootstrap_config: BootstrapConfig,
         *,
-        bot_token: str,
-        owner_id: int,
         env: Mapping[str, str],
     ) -> "AppConfig":
-        if bot_token.strip() == "":
-            raise ConfigError("bot_token is required")
-        if owner_id <= 0:
-            raise ConfigError("owner_id must be >= 1")
-
         return cls(
-            bot_token=bot_token,
-            owner_id=owner_id,
             database_url=bootstrap_config.database_url,
-            **_app_runtime_options(env, llm_api_key=env.get("LLM_API_KEY", "").strip()),
+            **_app_runtime_options(env),
         )
 
     def safe_dict(self) -> dict[str, object]:
@@ -203,8 +153,6 @@ class AppConfig:
                 result[field.name] = redact_database_url(str(value))
             elif field.name in _SECRET_FIELD_NAMES:
                 result[field.name] = redact_secret(str(value))
-            elif field.name in _SENSITIVE_NUMERIC_FIELD_NAMES:
-                result[field.name] = "<redacted>"
             else:
                 result[field.name] = value
         return result

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from summary_relay_bot.db.session import session_scope
-from summary_relay_bot.db.repositories import set_group_summary_enabled, upsert_group
+from summary_relay_bot.db.repositories import upsert_group
 from summary_relay_bot.scheduler import BotScheduler
+from summary_relay_bot.services.group_settings import enable_group_summary
+from summary_relay_bot.services.secrets import SecretService
 
 
 class FakeBot:
@@ -12,15 +14,20 @@ class FakeBot:
 async def test_scheduler_rebuilds_enabled_groups_and_removes_stale_summary_jobs(app_config, session_factory) -> None:
     async with session_scope(session_factory) as session:
         enabled = await upsert_group(session, chat_id=-100, chat_type="group", title="Enabled")
-        await set_group_summary_enabled(
-            session,
+        await enable_group_summary(
+            session=session,
             chat_id=enabled.chat_id,
-            enabled=True,
             interval_minutes=15,
         )
         await upsert_group(session, chat_id=-200, chat_type="group", title="Disabled")
 
-    scheduler = BotScheduler(config=app_config, bot=FakeBot(), session_factory=session_factory)
+    scheduler = BotScheduler(
+        config=app_config,
+        bot=FakeBot(),
+        session_factory=session_factory,
+        secret_service=SecretService(SecretService.generate_key()),
+        owner_id=1001,
+    )
     scheduler.upsert_summary_job(-999, 10)
     try:
         await scheduler.start()

@@ -5,15 +5,14 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from summary_relay_bot.config import AppConfig
 from summary_relay_bot.db.session import session_scope
 from summary_relay_bot.services.admin_replies import AdminReplyError, route_admin_reply, send_reply_command
 from summary_relay_bot.telegram.guards import OwnerPrivateFilter
 
 
-def build_router(config: AppConfig) -> Router:
+def build_router(*, owner_id: int) -> Router:
     router = Router(name="admin_replies")
-    owner_private = OwnerPrivateFilter(config.owner_id)
+    owner_private = OwnerPrivateFilter(owner_id)
     router.message.register(handle_reply_command, Command("reply"), owner_private)
     router.message.register(handle_admin_reply, owner_private, F.reply_to_message)
     router.message.register(handle_unscoped_admin_message, owner_private)
@@ -45,7 +44,7 @@ async def handle_reply_command(
 
 async def handle_admin_reply(
     message: Message,
-    config: AppConfig,
+    owner_id: int,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     try:
@@ -53,7 +52,7 @@ async def handle_admin_reply(
             result = await route_admin_reply(
                 session=session,
                 bot=message.bot,
-                config=config,
+                owner_id=owner_id,
                 message=message,
             )
         await message.answer(result)

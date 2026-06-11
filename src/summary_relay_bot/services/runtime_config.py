@@ -1210,8 +1210,6 @@ async def set_group_summary_settings(
         settings.timezone = timezone
         settings.updated_at = utcnow()
 
-    group.summaries_enabled = enabled
-    group.summary_interval_minutes = interval_minutes
     group.updated_at = utcnow()
     await session.flush()
     await create_audit_log(

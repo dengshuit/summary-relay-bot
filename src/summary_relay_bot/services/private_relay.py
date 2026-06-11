@@ -5,7 +5,6 @@ from typing import Any
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from summary_relay_bot.config import AppConfig
 from summary_relay_bot.db.models import DeliveryAttempt, PrivateUser, TelegramUpdate
 from summary_relay_bot.db.repositories import (
     create_delivery_attempt,
@@ -24,7 +23,7 @@ async def relay_private_message(
     *,
     session: AsyncSession,
     bot: Bot,
-    config: AppConfig,
+    owner_id: int,
     raw_update: TelegramUpdate,
     message: Any,
 ) -> None:
@@ -59,7 +58,7 @@ async def relay_private_message(
 
     try:
         info_card = await bot.send_message(
-            config.owner_id,
+            owner_id,
             render_private_user_info_card(user, source_message_id),
         )
     except Exception as exc:
@@ -70,7 +69,7 @@ async def relay_private_message(
         await create_delivery_attempt(
             session,
             purpose="private_info_card",
-            target_chat_id=config.owner_id,
+            target_chat_id=owner_id,
             status="failed",
             error_type=failure.error_type,
             error_message=failure.message,
@@ -88,14 +87,14 @@ async def relay_private_message(
     info_attempt = await create_delivery_attempt(
         session,
         purpose="private_info_card",
-        target_chat_id=config.owner_id,
+        target_chat_id=owner_id,
         result_message_id=info_message_id,
         status="sent",
     )
     info_mapped = await _create_reply_map_or_warn(
         session=session,
         bot=bot,
-        owner_id=config.owner_id,
+        owner_id=owner_id,
         private_user=private_user,
         private_message=inbound,
         attempt=info_attempt,
@@ -109,7 +108,7 @@ async def relay_private_message(
 
     try:
         copied = await bot.copy_message(
-            chat_id=config.owner_id,
+            chat_id=owner_id,
             from_chat_id=source_chat_id,
             message_id=source_message_id,
         )
@@ -121,7 +120,7 @@ async def relay_private_message(
         await create_delivery_attempt(
             session,
             purpose="private_copy_message",
-            target_chat_id=config.owner_id,
+            target_chat_id=owner_id,
             source_chat_id=source_chat_id,
             source_message_id=source_message_id,
             status="failed",
@@ -130,7 +129,7 @@ async def relay_private_message(
         )
         await _notify_admin(
             bot,
-            config.owner_id,
+            owner_id,
             "Could not copy the user's message. Reply to the info card if a mapping was created.",
         )
         await mark_raw_update_status(
@@ -147,7 +146,7 @@ async def relay_private_message(
     copy_attempt = await create_delivery_attempt(
         session,
         purpose="private_copy_message",
-        target_chat_id=config.owner_id,
+        target_chat_id=owner_id,
         source_chat_id=source_chat_id,
         source_message_id=source_message_id,
         result_message_id=copied_message_id,
@@ -166,14 +165,14 @@ async def relay_private_message(
         )
         await _notify_admin(
             bot,
-            config.owner_id,
+            owner_id,
             "The copied user message could not be mapped safely. Use /reply <user_id> <message>.",
         )
     else:
         copy_mapped = await _create_reply_map_or_warn(
             session=session,
             bot=bot,
-            owner_id=config.owner_id,
+            owner_id=owner_id,
             private_user=private_user,
             private_message=inbound,
             attempt=copy_attempt,

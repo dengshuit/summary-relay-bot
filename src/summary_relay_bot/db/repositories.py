@@ -85,7 +85,6 @@ async def upsert_group(
     chat_type: str,
     title: str | None,
     username: str | None = None,
-    default_interval_minutes: int | None = None,
 ) -> GroupChat:
     group = await session.scalar(select(GroupChat).where(GroupChat.chat_id == chat_id))
     if group:
@@ -101,8 +100,6 @@ async def upsert_group(
         chat_type=chat_type,
         title=title,
         username=username,
-        summaries_enabled=False,
-        summary_interval_minutes=default_interval_minutes,
     )
     session.add(group)
     await session.flush()
@@ -117,39 +114,6 @@ async def list_groups(session: AsyncSession) -> Sequence[GroupChat]:
 
 async def get_group_by_chat_id(session: AsyncSession, chat_id: int) -> GroupChat | None:
     return await session.scalar(select(GroupChat).where(GroupChat.chat_id == chat_id))
-
-
-async def set_group_summary_enabled(
-    session: AsyncSession,
-    *,
-    chat_id: int,
-    enabled: bool,
-    interval_minutes: int | None = None,
-) -> GroupChat | None:
-    group = await get_group_by_chat_id(session, chat_id)
-    if not group:
-        return None
-    group.summaries_enabled = enabled
-    if interval_minutes is not None:
-        group.summary_interval_minutes = interval_minutes
-    group.updated_at = utcnow()
-    await session.flush()
-    return group
-
-
-async def set_group_summary_interval(
-    session: AsyncSession,
-    *,
-    chat_id: int,
-    interval_minutes: int,
-) -> GroupChat | None:
-    group = await get_group_by_chat_id(session, chat_id)
-    if not group:
-        return None
-    group.summary_interval_minutes = interval_minutes
-    group.updated_at = utcnow()
-    await session.flush()
-    return group
 
 
 async def store_group_message(

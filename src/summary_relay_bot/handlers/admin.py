@@ -5,8 +5,8 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from summary_relay_bot.config import AppConfig
 from summary_relay_bot.db.session import session_scope
+from summary_relay_bot.services.secrets import SecretService
 from summary_relay_bot.services.summary_jobs import run_manual_summary
 from summary_relay_bot.telegram.guards import OwnerPrivateFilter, PrivateNonOwnerFilter, is_owner_user
 
@@ -14,7 +14,7 @@ ADMIN_HELP = (
     "Admin commands:\n"
     "/groups - list discovered groups\n"
     "/summary [chat_id] - summarize enabled groups or one group\n"
-    "/enable_group <chat_id> [minutes] - enable scheduled summaries\n"
+    "/enable_group <chat_id> <minutes> - enable scheduled summaries\n"
     "/disable_group <chat_id> - disable scheduled summaries\n"
     "/set_interval <chat_id> <minutes> - update a group's interval\n"
     "/reply <user_id> <message> - send a text reply to a known private user"
@@ -26,9 +26,9 @@ USER_HELP = (
 )
 
 
-def build_router(config: AppConfig) -> Router:
+def build_router(*, owner_id: int) -> Router:
     router = Router(name="admin")
-    owner_private = OwnerPrivateFilter(config.owner_id)
+    owner_private = OwnerPrivateFilter(owner_id)
 
     router.message.register(handle_admin_start, Command("start"), owner_private)
     router.message.register(handle_admin_help, Command("help"), owner_private)
@@ -36,9 +36,9 @@ def build_router(config: AppConfig) -> Router:
     router.message.register(
         handle_non_owner_admin_command,
         Command("summary", "groups", "enable_group", "disable_group", "set_interval", "reply"),
-        PrivateNonOwnerFilter(config.owner_id),
+        PrivateNonOwnerFilter(owner_id),
     )
-    router.message.register(handle_user_help, Command("help"), PrivateNonOwnerFilter(config.owner_id))
+    router.message.register(handle_user_help, Command("help"), PrivateNonOwnerFilter(owner_id))
     return router
 
 
@@ -50,16 +50,16 @@ async def handle_admin_help(message: Message) -> None:
     await message.answer(ADMIN_HELP)
 
 
-async def handle_user_help(message: Message, config: AppConfig) -> None:
-    if is_owner_user(getattr(getattr(message, "from_user", None), "id", None), config.owner_id):
+async def handle_user_help(message: Message, owner_id: int) -> None:
+    if is_owner_user(getattr(getattr(message, "from_user", None), "id", None), owner_id):
         return
     await message.answer(USER_HELP)
 
 
-async def handle_non_owner_admin_command(message: Message, config: AppConfig) -> None:
+async def handle_non_owner_admin_command(message: Message, owner_id: int) -> None:
     user_id = getattr(getattr(message, "from_user", None), "id", None)
     chat_type = getattr(getattr(message, "chat", None), "type", None)
-    if is_owner_user(user_id, config.owner_id):
+    if is_owner_user(user_id, owner_id):
         if chat_type != "private":
             return
         return
@@ -69,8 +69,9 @@ async def handle_non_owner_admin_command(message: Message, config: AppConfig) ->
 
 async def handle_manual_summary(
     message: Message,
-    config: AppConfig,
+    owner_id: int,
     session_factory: async_sessionmaker[AsyncSession],
+    secret_service: SecretService,
 ) -> None:
     text = getattr(message, "text", "") or ""
     parts = text.split(maxsplit=1)
@@ -83,7 +84,8 @@ async def handle_manual_summary(
         report = await run_manual_summary(
             session=session,
             bot=message.bot,
-            config=config,
+            owner_id=owner_id,
+            secret_service=secret_service,
             requested_chat_id=chat_id,
         )
     await message.answer(report)

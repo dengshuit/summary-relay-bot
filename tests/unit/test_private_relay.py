@@ -44,7 +44,6 @@ def private_message() -> SimpleNamespace:
 
 
 async def test_private_relay_marks_copy_mapping_failure_as_partial_and_warns(
-    app_config,
     db_session,
     monkeypatch,
 ) -> None:
@@ -66,7 +65,7 @@ async def test_private_relay_marks_copy_mapping_failure_as_partial_and_warns(
     await relay_private_message(
         session=db_session,
         bot=bot,
-        config=app_config,
+        owner_id=1001,
         raw_update=raw_update,
         message=private_message(),
     )

@@ -3,7 +3,7 @@
 ## Startup checklist
 
 1. Create the PostgreSQL database and run `alembic upgrade head`.
-2. Set the bootstrap env: `DATABASE_URL`, `SETTINGS_ENCRYPTION_KEY`, `WEBUI_ADMIN_TOKEN`, `WEBUI_HOST`, and `WEBUI_PORT`.
+2. Set the required bootstrap env: `DATABASE_URL`, `SETTINGS_ENCRYPTION_KEY`, and `WEBUI_ADMIN_TOKEN`. Set `WEBUI_HOST` and `WEBUI_PORT` when the defaults are not appropriate.
 3. Start exactly one bot service process. Empty databases and databases with no enabled bot still start the WebUI; Telegram polling does not start until an enabled bot can be loaded and decrypted.
 4. Open the WebUI and log in with `WEBUI_ADMIN_TOKEN`.
 5. Create a Telegram bot with BotFather, then configure its Bot token and owner ID in the WebUI.
@@ -35,8 +35,19 @@ Required startup env:
 | `DATABASE_URL` | Database connection string used before any runtime configuration can be loaded. |
 | `SETTINGS_ENCRYPTION_KEY` | Stable key used to encrypt/decrypt stored Bot tokens and LLM API keys. |
 | `WEBUI_ADMIN_TOKEN` | Single WebUI bearer token. |
+
+Optional process env:
+
+| Variable | Purpose |
+| --- | --- |
 | `WEBUI_HOST` | WebUI/API listen host. |
 | `WEBUI_PORT` | WebUI/API listen port. |
+| `ALLOW_WEBHOOK_DELETE` | Allows startup to delete an active Telegram webhook before polling. |
+| `DROP_PENDING_UPDATES_ON_WEBHOOK_DELETE` | Drops pending Telegram updates only when webhook deletion is explicitly enabled. |
+| `RAW_UPDATE_RETENTION_DAYS` | Raw update payload retention window before redaction. |
+| `SCHEDULER_TIMEZONE` | Scheduler timezone. |
+| `SCHEDULER_MISFIRE_GRACE_SECONDS` | Scheduler misfire grace period. |
+| `SCHEDULER_COALESCE` | Whether missed scheduled runs are coalesced after downtime. |
 
 Bot token, owner ID, LLM API key, provider model, summary profile, and group summary settings are database-managed runtime configuration. Do not treat legacy `.env` values for those fields as the long-term source of truth.
 
@@ -55,7 +66,7 @@ V1 uses Telegram Bot API polling. Webhook delivery is out of scope. Startup chec
 Administrator commands are effective only in the administrator's private chat with the bot.
 
 - `/groups` lists discovered groups.
-- `/enable_group <chat_id> [interval_minutes]` enables scheduled summaries.
+- `/enable_group <chat_id> <interval_minutes>` enables scheduled summaries.
 - `/disable_group <chat_id>` disables scheduled summaries.
 - `/set_interval <chat_id> <interval_minutes>` updates an enabled group's schedule.
 - `/summary` summarizes enabled groups manually.
