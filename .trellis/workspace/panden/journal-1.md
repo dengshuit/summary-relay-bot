@@ -237,3 +237,36 @@ Implemented monolith WebUI static deployment, Docker multi-stage build config, s
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Database runtime config source of truth
+
+**Date**: 2026-06-11
+**Task**: Database runtime config source of truth
+**Branch**: `master`
+
+### Summary
+
+Removed legacy env runtime config and made database-managed bot, LLM provider, summary profile, and group summary settings the runtime source of truth.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8a2bc42` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-06-11
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~239 | Active |
+| `journal-1.md` | ~272 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-06-11 | Database runtime config source of truth | `8a2bc42` | `master` |
 | 7 | 2026-06-11 | Batch 06 deploy smoke docs | `79c1fcf` | `master` |
 | 6 | 2026-06-11 | Batch 05 frontend app and LLM provider routing | `c632c17`, `b2775b1` | `master` |
 | 5 | 2026-06-10 | Batch 03 Engine API | `54e845e` | `master` |
