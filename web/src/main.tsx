@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
+import "@douyinfe/semi-ui/lib/es/react19-adapter";
 import "@douyinfe/semi-ui/lib/es/_base/base.css";
 import "./styles.css";
 import { App } from "./app/App";

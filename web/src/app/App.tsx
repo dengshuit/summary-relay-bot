@@ -4,6 +4,7 @@ import { getStoredToken } from "../api/client";
 import { AppShell } from "../components/AppShell";
 import { AuditLogs } from "../pages/AuditLogs";
 import { Bot } from "../pages/Bot";
+import { ComponentReference } from "../pages/ComponentReference";
 import { Dashboard } from "../pages/Dashboard";
 import { Engine } from "../pages/Engine";
 import { GroupDetail } from "../pages/GroupDetail";
@@ -36,6 +37,7 @@ export function App() {
     () => (
       <Routes key={sessionVersion}>
         <Route path="/login" element={<Login />} />
+        <Route path="/component-reference" element={<ComponentReference />} />
         <Route
           path="/"
           element={
