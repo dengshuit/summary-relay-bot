@@ -170,3 +170,37 @@ Implemented LLM Provider and Summary Profile management APIs with redacted secre
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: Batch 05 frontend app and LLM provider routing
+
+**Date**: 2026-06-11
+**Task**: Batch 05 frontend app and LLM provider routing
+**Branch**: `master`
+
+### Summary
+
+Added the Batch 05 React management WebUI, plus provider-type LLM client routing with OpenAI-compatible summary calls.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c632c17` | (see git log) |
+| `b2775b1` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
