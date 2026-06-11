@@ -406,3 +406,36 @@ Added WebUI Bot creation, finished Engine compact styling, simplified token-sess
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: WebUI groups audit polish
+
+**Date**: 2026-06-11
+**Task**: WebUI groups audit polish
+**Branch**: `master`
+
+### Summary
+
+Rebuilt the Groups, GroupDetail, and AuditLogs pages on the SemiAI-style WebUI baseline, preserving existing data loading, filters, pagination, summary settings, job trigger/polling, and audit diff behavior. Verified with web typecheck/build and local browser screenshots using mock API data.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5446fc7` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
