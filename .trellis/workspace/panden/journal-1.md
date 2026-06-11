@@ -270,3 +270,36 @@ Removed legacy env runtime config and made database-managed bot, LLM provider, s
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: Docker first boot and log timestamps
+
+**Date**: 2026-06-11
+**Task**: Docker first boot and log timestamps
+**Branch**: `master`
+
+### Summary
+
+Added Docker Compose startup migrations, timestamped app/Alembic logs, related docs, tests, and backend specs.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7968735` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
