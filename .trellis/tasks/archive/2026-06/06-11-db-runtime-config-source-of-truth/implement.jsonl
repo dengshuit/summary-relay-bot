@@ -1,0 +1,9 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend guideline index for selecting relevant project conventions"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Database model and migration changes are central to this task"}
+{"file": ".trellis/spec/backend/web-api-contracts.md", "reason": "Web group/provider/profile API contracts and secret-safe behavior may change"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Runtime config and summary failure handling must stay consistent"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Task spans DB, services, scheduler, API, frontend types, tests, and docs"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Broad refactor needs project quality and test expectations"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Secret-bearing runtime config changes must remain log-safe"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid duplicating runtime config and settings logic during refactor"}
