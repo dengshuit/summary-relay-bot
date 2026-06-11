@@ -19,7 +19,9 @@ Added the first backend foundation for the Web-managed configuration center: boo
 
 ### Main Changes
 
-(Add details)
+- Replaced the default Semi Nav/Layout shell with a custom grouped sidebar, active states, pending badge, GitHub chip, topbar controls, session cluster, and responsive drawer behavior.
+- Rebuilt Dashboard around the prototype structure: welcome block, soft restart warning, KPI cards, trend SVG, group-state donut, ranking panel, activity stream, and CTA band.
+- Centralized the light token system and reusable panel/metric/status/activity/rank/chart classes in `web/src/styles.css` while keeping existing non-Dashboard pages usable under the new shell.
 
 ### Git Commits
 
@@ -29,7 +31,9 @@ Added the first backend foundation for the Web-managed configuration center: boo
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `cd web && npm run typecheck`
+- [OK] `cd web && npm run build`
+- [OK] Browser screenshots inspected for `/`, `/bot`, and mobile `/` using local mock API data.
 
 ### Status
 
@@ -291,6 +295,39 @@ Added Docker Compose startup migrations, timestamped app/Alembic logs, related d
 | Hash | Message |
 |------|---------|
 | `7968735` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 10: Rebuild WebUI shell and dashboard
+
+**Date**: 2026-06-11
+**Task**: Rebuild WebUI shell and dashboard
+**Branch**: `master`
+
+### Summary
+
+Implemented the first SemiAI-style WebUI pass for AppShell and Dashboard; verified typecheck, build, and browser screenshots.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dc27e44` | (see git log) |
 
 ### Testing
 
