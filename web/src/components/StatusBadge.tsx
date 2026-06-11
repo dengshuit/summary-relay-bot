@@ -1,5 +1,3 @@
-import { Tag } from "../ui/semi";
-
 const statusLabel: Record<string, string> = {
   valid: "有效",
   invalid: "无效",
@@ -12,7 +10,7 @@ const statusLabel: Record<string, string> = {
   blocked: "已阻塞"
 };
 
-const statusColor: Record<string, "green" | "red" | "orange" | "grey" | "blue"> = {
+const statusColor: Record<string, "green" | "red" | "orange" | "neutral" | "blue"> = {
   valid: "green",
   succeeded: "green",
   invalid: "red",
@@ -21,15 +19,16 @@ const statusColor: Record<string, "green" | "red" | "orange" | "grey" | "blue"> 
   blocked: "orange",
   running: "blue",
   pending: "blue",
-  unvalidated: "grey"
+  unvalidated: "neutral"
 };
 
 export function StatusBadge({ status }: { status: string | null | undefined }) {
   const normalized = status || "unknown";
+  const color = statusColor[normalized] || "neutral";
   return (
-    <Tag color={statusColor[normalized] || "grey"} shape="circle">
-      <span className={`status-dot status-dot-${statusColor[normalized] || "grey"}`} />
+    <span className={`status-pill ${color}`}>
+      <span className={`status-dot status-dot-${color}`} />
       {statusLabel[normalized] || normalized}
-    </Tag>
+    </span>
   );
 }

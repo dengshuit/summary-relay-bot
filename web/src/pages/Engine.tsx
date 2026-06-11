@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Button,
-  Card,
   Empty,
   Input,
   InputNumber,
@@ -10,12 +10,11 @@ import {
   Skeleton,
   Switch,
   Tabs,
-  Tag,
   TextArea,
   Toast,
   Typography
 } from "../ui/semi";
-import { IconPlus, IconRefresh, IconSave, IconStar, IconTestScore } from "@douyinfe/semi-icons";
+import { IconEdit, IconKey, IconPlus, IconRefresh, IconSave, IconStar, IconTestScore } from "@douyinfe/semi-icons";
 import { api } from "../api/client";
 import type { LLMProvider, SummaryProfile } from "../api/types";
 import { confirmAction } from "../components/ConfirmAction";
@@ -73,6 +72,51 @@ function profileForm(profile?: SummaryProfile, providerId?: number | null): Prof
     enabled: profile?.enabled ?? true,
     is_default: profile?.is_default ?? false
   };
+}
+
+function EntityField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="entity-field">
+      <span className="k">{label}</span>
+      <span className="v">{children}</span>
+    </div>
+  );
+}
+
+function EnabledPill({ enabled }: { enabled: boolean }) {
+  const tone = enabled ? "green" : "neutral";
+  return (
+    <span className={`status-pill ${tone}`}>
+      <span className={`status-dot status-dot-${tone}`} />
+      {enabled ? "已启用" : "已禁用"}
+    </span>
+  );
+}
+
+function SecretPill({ configured }: { configured: boolean }) {
+  return (
+    <span className={`status-pill ${configured ? "green" : "neutral"}`}>
+      <IconKey />
+      {configured ? "已配置" : "未配置"}
+    </span>
+  );
+}
+
+function DefaultPill() {
+  return (
+    <span className="status-pill violet">
+      <IconStar />
+      默认
+    </span>
+  );
+}
+
+function ModelModePill({ usesDefault }: { usesDefault: boolean }) {
+  return (
+    <span className={`status-pill ${usesDefault ? "neutral" : "blue"}`}>
+      {usesDefault ? "provider 默认" : "覆盖"}
+    </span>
+  );
 }
 
 export function Engine() {
@@ -230,7 +274,7 @@ export function Engine() {
   }
 
   return (
-    <div className="page">
+    <div className="page engine-page">
       <div className="page-head-row">
         <div>
           <Title heading={2}>摘要引擎</Title>
@@ -241,48 +285,36 @@ export function Engine() {
         </Button>
       </div>
 
-      <Tabs type="line">
+      <Tabs type="line" className="engine-tabs">
         <Tabs.TabPane tab="LLM Provider" itemKey="provider">
-          <div className="entity-grid">
+          <div className="entity-grid compact-card-grid">
             {providers.map((provider) => (
-              <Card
-                key={provider.id}
-                title={
-                  <div className="card-title-row">
-                    <span>{provider.name}</span>
-                    <StatusBadge status={provider.status} />
+              <div className="compact-card" key={provider.id}>
+                <div className="compact-card-head">
+                  <div className="compact-card-title-group">
+                    <div className="compact-card-title">{provider.name}</div>
+                    <div className="compact-card-sub">
+                      {provider.provider_type}
+                      {!provider.enabled && <span className="muted-text"> · disabled</span>}
+                    </div>
                   </div>
-                }
-              >
-                <div className="entity-fields">
-                  <div>
-                    <Text type="tertiary">类型</Text>
-                    <Text>{provider.provider_type}</Text>
-                  </div>
-                  <div>
-                    <Text type="tertiary">default model</Text>
-                    <Text>{provider.default_model}</Text>
-                  </div>
-                  <div>
-                    <Text type="tertiary">base url</Text>
-                    <Text>{provider.base_url || "-"}</Text>
-                  </div>
-                  <div>
-                    <Text type="tertiary">API key</Text>
-                    <Tag color={provider.secret.configured ? "green" : "grey"}>
-                      {provider.secret.configured ? "已配置" : "未配置"}
-                    </Tag>
-                  </div>
-                  <div>
-                    <Text type="tertiary">最近验证</Text>
-                    <Text>{formatDateTime(provider.last_validated_at)}</Text>
-                  </div>
-                  <div>
-                    <Text type="tertiary">enabled</Text>
-                    <Text>{provider.enabled ? "已启用" : "已禁用"}</Text>
-                  </div>
+                  <StatusBadge status={provider.status} />
                 </div>
-                <div className="card-actions">
+                <div className="entity-fields compact-fields">
+                  <EntityField label="default model">{provider.default_model}</EntityField>
+                  <EntityField label="base url">{provider.base_url || "-"}</EntityField>
+                  <EntityField label="API key">
+                    <SecretPill configured={provider.secret.configured} />
+                  </EntityField>
+                  <EntityField label="timeout / retries">
+                    {provider.timeout_seconds}s / {provider.max_retries}
+                  </EntityField>
+                  <EntityField label="最近验证">{formatDateTime(provider.last_validated_at)}</EntityField>
+                  <EntityField label="enabled">
+                    <EnabledPill enabled={provider.enabled} />
+                  </EntityField>
+                </div>
+                <div className="compact-card-actions">
                   <Button
                     size="small"
                     icon={<IconTestScore />}
@@ -291,15 +323,17 @@ export function Engine() {
                   >
                     测试
                   </Button>
-                  <Button size="small" onClick={() => openProviderModal(provider)}>
+                  <Button size="small" icon={<IconEdit />} onClick={() => openProviderModal(provider)}>
                     编辑
                   </Button>
                 </div>
-              </Card>
+              </div>
             ))}
-            <button type="button" className="add-card-button" onClick={() => openProviderModal()}>
-              <IconPlus />
-              新增 Provider
+            <button type="button" className="add-card-button compact-add-card" onClick={() => openProviderModal()}>
+              <span className="add-card-icon">
+                <IconPlus />
+              </span>
+              <span>新增 Provider</span>
             </button>
           </div>
         </Tabs.TabPane>
@@ -308,50 +342,35 @@ export function Engine() {
           {providers.length === 0 ? (
             <Empty description="请先创建 LLM Provider" />
           ) : (
-            <div className="entity-grid">
+            <div className="entity-grid compact-card-grid">
               {profiles.map((profile) => (
-                <Card
-                  key={profile.id}
-                  title={
-                    <div className="card-title-row">
-                      <span>{profile.name}</span>
-                      {profile.is_default && <Tag color="violet" prefixIcon={<IconStar />}>默认</Tag>}
-                    </div>
-                  }
-                >
-                  <div className="entity-fields">
-                    <div>
-                      <Text type="tertiary">Provider</Text>
-                      <Text>
+                <div className="compact-card" key={profile.id}>
+                  <div className="compact-card-head">
+                    <div className="compact-card-title-group">
+                      <div className="compact-card-title-row">
+                        <span className="compact-card-title">{profile.name}</span>
+                        {profile.is_default && <DefaultPill />}
+                      </div>
+                      <div className="compact-card-sub">
                         {profile.llm_provider.name} · {profile.llm_provider.provider_type}
-                      </Text>
+                      </div>
                     </div>
-                    <div>
-                      <Text type="tertiary">model</Text>
-                      <Text>
-                        {profile.effective_model}{" "}
-                        {profile.uses_provider_default_model ? <Tag>provider 默认</Tag> : <Tag color="blue">覆盖</Tag>}
-                      </Text>
-                    </div>
-                    <div>
-                      <Text type="tertiary">prompt version</Text>
-                      <Text>{profile.prompt_version}</Text>
-                    </div>
-                    <div>
-                      <Text type="tertiary">temperature</Text>
-                      <Text>{profile.temperature ?? "-"}</Text>
-                    </div>
-                    <div>
-                      <Text type="tertiary">max output</Text>
-                      <Text>{profile.max_output_tokens ?? "-"}</Text>
-                    </div>
-                    <div>
-                      <Text type="tertiary">enabled</Text>
-                      <Text>{profile.enabled ? "已启用" : "已禁用"}</Text>
-                    </div>
+                    <EnabledPill enabled={profile.enabled} />
                   </div>
-                  <div className="card-actions">
-                    <Button size="small" onClick={() => openProfileModal(profile)}>
+                  <div className="entity-fields compact-fields">
+                    <EntityField label="model">
+                      <span className="inline-value">
+                        {profile.effective_model}
+                        <ModelModePill usesDefault={profile.uses_provider_default_model} />
+                      </span>
+                    </EntityField>
+                    <EntityField label="prompt version">{profile.prompt_version}</EntityField>
+                    <EntityField label="temperature">{profile.temperature ?? "-"}</EntityField>
+                    <EntityField label="max output">{profile.max_output_tokens ?? "-"}</EntityField>
+                    <EntityField label="system prompt">{profile.system_prompt ? "已配置" : "-"}</EntityField>
+                  </div>
+                  <div className="compact-card-actions">
+                    <Button size="small" icon={<IconEdit />} onClick={() => openProfileModal(profile)}>
                       编辑
                     </Button>
                     <Button
@@ -363,11 +382,13 @@ export function Engine() {
                       {profile.is_default ? "已是默认" : "设为默认"}
                     </Button>
                   </div>
-                </Card>
+                </div>
               ))}
-              <button type="button" className="add-card-button" onClick={() => openProfileModal()}>
-                <IconPlus />
-                新增 Profile
+              <button type="button" className="add-card-button compact-add-card" onClick={() => openProfileModal()}>
+                <span className="add-card-icon">
+                  <IconPlus />
+                </span>
+                <span>新增 Profile</span>
               </button>
             </div>
           )}
@@ -376,6 +397,7 @@ export function Engine() {
 
       <Modal
         title={providerModal.provider ? "编辑 LLM Provider" : "新增 LLM Provider"}
+        className="compact-modal"
         visible={providerModal.open}
         onCancel={() => setProviderModal({ open: false })}
         footer={
@@ -458,6 +480,7 @@ export function Engine() {
 
       <Modal
         title={profileModal.profile ? "编辑 Summary Profile" : "新增 Summary Profile"}
+        className="compact-modal"
         visible={profileModal.open}
         onCancel={() => setProfileModal({ open: false })}
         footer={
