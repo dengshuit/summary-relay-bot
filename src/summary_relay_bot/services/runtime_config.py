@@ -248,14 +248,16 @@ async def create_bot_instance(
     enabled: bool = False,
     actor: str = "system",
 ) -> BotInstance:
+    normalized_name = _normalize_required_text(name, "name")
+    normalized_token = _normalize_required_text(bot_token, "bot_token")
     if owner_id <= 0:
         raise RuntimeConfigError("owner_id must be a positive integer")
     if enabled and await enabled_bot_instance(session) is not None:
         raise RuntimeConfigError("only one bot instance can be enabled")
 
     bot_instance = BotInstance(
-        name=name,
-        bot_token_encrypted=secret_service.encrypt(bot_token),
+        name=normalized_name,
+        bot_token_encrypted=secret_service.encrypt(normalized_token),
         owner_id=owner_id,
         enabled=enabled,
     )

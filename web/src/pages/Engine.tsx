@@ -14,7 +14,7 @@ import {
   Toast,
   Typography
 } from "../ui/semi";
-import { IconEdit, IconKey, IconPlus, IconRefresh, IconSave, IconStar, IconTestScore } from "@douyinfe/semi-icons";
+import { IconEdit, IconPlus, IconRefresh, IconSave, IconStar, IconTestScore } from "@douyinfe/semi-icons";
 import { api } from "../api/client";
 import type { LLMProvider, SummaryProfile } from "../api/types";
 import { confirmAction } from "../components/ConfirmAction";
@@ -94,9 +94,10 @@ function EnabledPill({ enabled }: { enabled: boolean }) {
 }
 
 function SecretPill({ configured }: { configured: boolean }) {
+  const tone = configured ? "green" : "neutral";
   return (
-    <span className={`status-pill ${configured ? "green" : "neutral"}`}>
-      <IconKey />
+    <span className={`status-pill ${tone}`}>
+      <span className={`status-dot status-dot-${tone}`} />
       {configured ? "已配置" : "未配置"}
     </span>
   );
@@ -105,15 +106,17 @@ function SecretPill({ configured }: { configured: boolean }) {
 function DefaultPill() {
   return (
     <span className="status-pill violet">
-      <IconStar />
+      <span className="status-dot status-dot-violet" />
       默认
     </span>
   );
 }
 
 function ModelModePill({ usesDefault }: { usesDefault: boolean }) {
+  const tone = usesDefault ? "neutral" : "blue";
   return (
-    <span className={`status-pill ${usesDefault ? "neutral" : "blue"}`}>
+    <span className={`status-pill ${tone}`}>
+      <span className={`status-dot status-dot-${tone}`} />
       {usesDefault ? "provider 默认" : "覆盖"}
     </span>
   );
@@ -275,18 +278,25 @@ export function Engine() {
 
   return (
     <div className="page engine-page">
-      <div className="page-head-row">
+      <div className="page-head-row engine-head-row">
         <div>
           <Title heading={2}>摘要引擎</Title>
           <Text type="tertiary">先配置 LLM Provider，再用 Summary Profile 定义摘要方案。</Text>
         </div>
-        <Button icon={<IconRefresh />} onClick={load}>
+        <Button className="page-refresh-button" icon={<IconRefresh />} onClick={() => load()}>
           刷新
         </Button>
       </div>
 
       <Tabs type="line" className="engine-tabs">
-        <Tabs.TabPane tab="LLM Provider" itemKey="provider">
+        <Tabs.TabPane
+          tab={
+            <span className="engine-tab-label">
+              LLM Provider <span className="engine-tab-count">{providers.length}</span>
+            </span>
+          }
+          itemKey="provider"
+        >
           <div className="entity-grid compact-card-grid">
             {providers.map((provider) => (
               <div className="compact-card" key={provider.id}>
@@ -338,7 +348,14 @@ export function Engine() {
           </div>
         </Tabs.TabPane>
 
-        <Tabs.TabPane tab="Summary Profile" itemKey="profile">
+        <Tabs.TabPane
+          tab={
+            <span className="engine-tab-label">
+              Summary Profile <span className="engine-tab-count">{profiles.length}</span>
+            </span>
+          }
+          itemKey="profile"
+        >
           {providers.length === 0 ? (
             <Empty description="请先创建 LLM Provider" />
           ) : (
@@ -396,7 +413,14 @@ export function Engine() {
       </Tabs>
 
       <Modal
-        title={providerModal.provider ? "编辑 LLM Provider" : "新增 LLM Provider"}
+        title={
+          <span className="compact-modal-heading">
+            <span className="compact-modal-heading-icon">
+              {providerModal.provider ? <IconEdit /> : <IconPlus />}
+            </span>
+            {providerModal.provider ? "编辑 LLM Provider" : "新增 LLM Provider"}
+          </span>
+        }
         className="compact-modal"
         visible={providerModal.open}
         onCancel={() => setProviderModal({ open: false })}
@@ -409,7 +433,7 @@ export function Engine() {
           </div>
         }
       >
-        <div className="form-stack">
+        <div className="form-stack compact-form-panel">
           <div className="field-block">
             <Text strong>名称</Text>
             <Input value={providerState.name} onChange={(value) => setProviderState({ ...providerState, name: value })} />
@@ -479,7 +503,14 @@ export function Engine() {
       </Modal>
 
       <Modal
-        title={profileModal.profile ? "编辑 Summary Profile" : "新增 Summary Profile"}
+        title={
+          <span className="compact-modal-heading">
+            <span className="compact-modal-heading-icon">
+              {profileModal.profile ? <IconEdit /> : <IconPlus />}
+            </span>
+            {profileModal.profile ? "编辑 Summary Profile" : "新增 Summary Profile"}
+          </span>
+        }
         className="compact-modal"
         visible={profileModal.open}
         onCancel={() => setProfileModal({ open: false })}
@@ -492,7 +523,7 @@ export function Engine() {
           </div>
         }
       >
-        <div className="form-stack">
+        <div className="form-stack compact-form-panel">
           <div className="field-block">
             <Text strong>名称</Text>
             <Input value={profileState.name} onChange={(value) => setProfileState({ ...profileState, name: value })} />

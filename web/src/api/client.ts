@@ -1,6 +1,7 @@
 import { Toast } from "../ui/semi";
 import type {
   AuditLogListResponse,
+  BotInstance,
   BotListResponse,
   BotValidateResponse,
   DashboardResponse,
@@ -118,6 +119,12 @@ export const api = {
 
   bot: {
     list: () => apiRequest<BotListResponse>("/api/bot"),
+    create: (payload: {
+      name: string;
+      owner_id: number;
+      enabled: boolean;
+      bot_token: string;
+    }) => apiRequest<BotInstance>("/api/bot", jsonBody(payload)),
     update: (payload: {
       id: number;
       name?: string;

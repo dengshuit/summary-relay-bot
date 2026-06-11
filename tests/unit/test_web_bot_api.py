@@ -87,6 +87,82 @@ async def test_get_bot_returns_redacted_active_and_items(session_factory) -> Non
     assert bootstrap_config.settings_encryption_key not in rendered
 
 
+async def test_post_bot_creates_redacted_enabled_instance(session_factory) -> None:
+    bootstrap_config = _bootstrap_config()
+    app = _web_app(session_factory, bootstrap_config)
+
+    response = await _request(
+        app,
+        "POST",
+        "/api/bot",
+        json={
+            "name": " Main bot ",
+            "bot_token": "123456:created-secret",
+            "owner_id": 8812345678,
+            "enabled": True,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["name"] == "Main bot"
+    assert payload["enabled"] is True
+    assert payload["owner_id_redacted"] == "88***78"
+    assert payload["secret"] == {"configured": True, "updated_at": None}
+    assert "123456:created-secret" not in response.text
+    assert "8812345678" not in response.text
+    assert ADMIN_TOKEN not in response.text
+    assert bootstrap_config.settings_encryption_key not in response.text
+
+    secret_service = SecretService(bootstrap_config.settings_encryption_key)
+    async with session_factory() as session:
+        bots = (await session.scalars(select(BotInstance))).all()
+        audit_logs = (await session.scalars(select(AuditLog))).all()
+    assert len(bots) == 1
+    assert secret_service.decrypt(bots[0].bot_token_encrypted) == "123456:created-secret"
+    assert "create_bot_instance" in [log.action for log in audit_logs]
+    assert "created-secret" not in str([log.redacted_after for log in audit_logs])
+
+
+async def test_post_bot_validates_parameters_without_leaking_secret(session_factory) -> None:
+    response = await _request(
+        _web_app(session_factory, _bootstrap_config()),
+        "POST",
+        "/api/bot",
+        json={
+            "name": "Invalid bot",
+            "bot_token": "123456:invalid-secret",
+            "owner_id": 0,
+            "enabled": True,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "validation_error"
+    assert "invalid-secret" not in response.text
+
+
+async def test_bot_request_validation_error_does_not_echo_secret(session_factory) -> None:
+    response = await _request(
+        _web_app(session_factory, _bootstrap_config()),
+        "POST",
+        "/api/bot",
+        json={
+            "name": "Invalid bot",
+            "bot_token": "123456:validation-secret",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": {
+            "code": "validation_error",
+            "message": "request validation failed",
+        }
+    }
+    assert "validation-secret" not in response.text
+
+
 async def test_patch_bot_secret_noop_values_do_not_modify_stored_token(session_factory) -> None:
     bootstrap_config = _bootstrap_config()
     secret_service = SecretService(bootstrap_config.settings_encryption_key)
@@ -388,6 +464,13 @@ async def test_bot_api_requires_admin_token(session_factory) -> None:
     app = _web_app(session_factory, _bootstrap_config())
 
     get_response = await _request(app, "GET", "/api/bot", token=None)
+    create_response = await _request(
+        app,
+        "POST",
+        "/api/bot",
+        token=None,
+        json={"name": "Main bot", "owner_id": 1, "bot_token": "123456:secret"},
+    )
     validate_response = await _request(
         app,
         "POST",
@@ -398,9 +481,11 @@ async def test_bot_api_requires_admin_token(session_factory) -> None:
     patch_response = await _request(app, "PATCH", "/api/bot", token=None, json={"id": 1})
 
     assert get_response.status_code == 401
+    assert create_response.status_code == 401
     assert validate_response.status_code == 401
     assert patch_response.status_code == 401
     assert get_response.json() == validate_response.json()
+    assert get_response.json() == create_response.json()
     assert get_response.json() == patch_response.json()
     assert get_response.json() == {
         "error": {

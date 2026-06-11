@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Empty, Input, InputNumber, Select, Skeleton, Toast, Typography } from "../ui/semi";
+import { Button, Input, InputNumber, Modal, Select, Skeleton, Switch, Toast, Typography } from "../ui/semi";
 import {
   IconInfoCircle,
   IconKey,
+  IconPlus,
   IconPulse,
   IconRefresh,
   IconSave,
@@ -19,6 +20,22 @@ import { formatDateTime } from "../utils/format";
 
 const { Text } = Typography;
 
+type BotCreateState = {
+  name: string;
+  owner_id: number | null;
+  bot_token: string;
+  enabled: boolean;
+};
+
+function botCreateState(enabled: boolean): BotCreateState {
+  return {
+    name: "",
+    owner_id: null,
+    bot_token: "",
+    enabled
+  };
+}
+
 function botEnabledLabel(bot: BotInstance) {
   return bot.enabled ? "当前启用的 Bot 实例" : "未启用的 Bot 实例";
 }
@@ -32,19 +49,34 @@ export function Bot() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createState, setCreateState] = useState<BotCreateState>(botCreateState(true));
+
+  const allBots = useMemo(() => {
+    if (!data) {
+      return [];
+    }
+    const byId = new Map<number, BotInstance>();
+    if (data.active) {
+      byId.set(data.active.id, data.active);
+    }
+    data.items.forEach((item) => byId.set(item.id, item));
+    return [...byId.values()];
+  }, [data]);
 
   const selected = useMemo(
-    () => data?.items.find((item) => item.id === selectedId) || data?.active || data?.items[0] || null,
-    [data, selectedId]
+    () => allBots.find((item) => item.id === selectedId) || data?.active || allBots[0] || null,
+    [allBots, data?.active, selectedId]
   );
 
-  async function load() {
+  async function load(preferId?: number) {
     setLoading(true);
     try {
       const next = await api.bot.list();
       setData(next);
       const bot = next.active || next.items[0] || null;
-      setSelectedId((current) => current || bot?.id || null);
+      setSelectedId((current) => preferId || current || bot?.id || null);
     } finally {
       setLoading(false);
     }
@@ -114,12 +146,160 @@ export function Bot() {
     }
   }
 
+  function openCreateModal() {
+    setCreateState(botCreateState(!data?.active));
+    setCreateModalOpen(true);
+  }
+
+  async function createBot() {
+    if (!createState.name.trim()) {
+      Toast.warning("请填写 Bot 名称");
+      return;
+    }
+    if (createState.owner_id === null) {
+      Toast.warning("请填写 Owner ID");
+      return;
+    }
+    if (!createState.bot_token.trim()) {
+      Toast.warning("请填写 Bot Token");
+      return;
+    }
+    setCreating(true);
+    try {
+      const created = await api.bot.create({
+        name: createState.name,
+        owner_id: createState.owner_id,
+        enabled: createState.enabled,
+        bot_token: createState.bot_token
+      });
+      Toast.success("Bot 实例已创建");
+      setCreateModalOpen(false);
+      await load(created.id);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  const createBotModal = (
+    <Modal
+      title="新增 Bot 实例"
+      className="compact-modal bot-create-modal"
+      visible={createModalOpen}
+      onCancel={() => setCreateModalOpen(false)}
+      footer={
+        <div className="modal-actions">
+          <Button onClick={() => setCreateModalOpen(false)}>取消</Button>
+          <Button theme="solid" type="primary" icon={<IconSave />} loading={creating} onClick={createBot}>
+            创建 Bot
+          </Button>
+        </div>
+      }
+    >
+      <div className="form-stack form-stack-compact">
+        <div className="field-block">
+          <Text strong>名称</Text>
+          <Input
+            value={createState.name}
+            placeholder="例如：生产主号"
+            onChange={(value) => setCreateState({ ...createState, name: value })}
+          />
+        </div>
+        <div className="field-block">
+          <Text strong>Owner ID</Text>
+          <InputNumber
+            value={createState.owner_id ?? undefined}
+            placeholder="管理员 Telegram numeric user ID"
+            hideButtons
+            onChange={(value) =>
+              setCreateState({ ...createState, owner_id: typeof value === "number" ? value : null })
+            }
+          />
+          <Text type="tertiary" size="small">
+            创建后响应只返回脱敏 owner id；修改 owner id 需要重启生效。
+          </Text>
+        </div>
+        <div className="field-block secret-input">
+          <div className="field-label-row">
+            <Text strong>Bot Token</Text>
+            <span className="restart-pill">待重启生效</span>
+          </div>
+          <Input
+            mode="password"
+            value={createState.bot_token}
+            placeholder="从 BotFather 获取的 token"
+            autoComplete="new-password"
+            onChange={(value) => setCreateState({ ...createState, bot_token: value })}
+          />
+          <Text type="tertiary" size="small">
+            token 会加密存储；WebUI 不会返回或展示明文。
+          </Text>
+        </div>
+        <div className="switch-row">
+          <Switch
+            checked={createState.enabled}
+            onChange={(checked) => setCreateState({ ...createState, enabled: checked })}
+          />
+          <Text>创建后启用此 Bot</Text>
+        </div>
+      </div>
+    </Modal>
+  );
+
   if (loading && data === null) {
     return <Skeleton active placeholder={<Skeleton.Paragraph rows={8} />} />;
   }
 
   if (!selected) {
-    return <Empty description="暂无 Bot 实例。请先通过后端初始化配置。" />;
+    return (
+      <div className="page bot-empty-page">
+        <div className="object-head">
+          <div className="object-icon">
+            <IconServer />
+          </div>
+          <div className="object-copy">
+            <div className="object-title-row">
+              <h1>Bot 配置</h1>
+              <span className="status-pill neutral">
+                <span className="status-dot status-dot-neutral" />
+                未配置
+              </span>
+            </div>
+            <div className="object-sub">通过 WebUI 创建第一个 Bot 实例，配置 token 与 Owner ID。</div>
+          </div>
+          <div className="object-actions">
+            <Button icon={<IconRefresh />} onClick={() => load()}>
+              刷新
+            </Button>
+            <Button theme="solid" type="primary" icon={<IconPlus />} onClick={openCreateModal}>
+              新增 Bot
+            </Button>
+          </div>
+        </div>
+        <div className="panel bot-empty-panel">
+          <div className="panel-head">
+            <div>
+              <h2>还没有 Bot 实例</h2>
+              <p>数据库已迁移后，Bot token 与 Owner ID 应通过 WebUI 写入数据库运行配置。</p>
+            </div>
+            <span className="panel-icon">
+              <IconPlus />
+            </span>
+          </div>
+          <div className="panel-body bot-empty-body">
+            <div className="bot-empty-copy">
+              <div className="bot-empty-title">创建后即可继续测试连接</div>
+              <div className="bot-empty-sub">
+                secret 会加密保存，页面只展示配置状态；启用 Bot 或修改 token/Owner ID 后仍需重启 polling 生效。
+              </div>
+            </div>
+            <Button theme="solid" type="primary" icon={<IconPlus />} onClick={openCreateModal}>
+              新增 Bot 实例
+            </Button>
+          </div>
+        </div>
+        {createBotModal}
+      </div>
+    );
   }
 
   return (
@@ -138,7 +318,10 @@ export function Bot() {
           </div>
         </div>
         <div className="object-actions">
-          <Button icon={<IconRefresh />} onClick={load}>
+          <Button icon={<IconPlus />} onClick={openCreateModal}>
+            新增 Bot
+          </Button>
+          <Button icon={<IconRefresh />} onClick={() => load()}>
             刷新
           </Button>
           <Button onClick={() => validate(selected)} loading={testing} icon={<IconTickCircle />}>
@@ -146,6 +329,8 @@ export function Bot() {
           </Button>
         </div>
       </div>
+
+      {createBotModal}
 
       {selected.needs_restart && (
         <div className="restart-banner">
@@ -170,12 +355,12 @@ export function Bot() {
             </span>
           </div>
           <div className="panel-body form-stack form-stack-compact">
-            {data && data.items.length > 1 && (
+            {allBots.length > 1 && (
               <div className="field-block">
                 <Text strong>Bot 实例</Text>
                 <Select
                   value={selected.id}
-                  optionList={data.items.map((item) => ({
+                  optionList={allBots.map((item) => ({
                     label: `${item.name}${item.enabled ? " · enabled" : ""}`,
                     value: item.id
                   }))}

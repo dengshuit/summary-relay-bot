@@ -1,5 +1,86 @@
 # Web API Contracts
 
+## Scenario: Bot Instance Management API
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing `/api/bot` management endpoints.
+- Applies to FastAPI routes under `src/summary_relay_bot/web/routes/bot.py`, schemas in `src/summary_relay_bot/web/schemas.py`, frontend API methods in `web/src/api/client.ts`, and Bot runtime rules in `src/summary_relay_bot/services/runtime_config.py`.
+- Secret-bearing fields include Bot token, `WEBUI_ADMIN_TOKEN`, and `SETTINGS_ENCRYPTION_KEY`; owner ID is sensitive and must be redacted in responses/audit output.
+
+### 2. Signatures
+
+- `GET /api/bot`
+- `POST /api/bot`
+- `PATCH /api/bot`
+- `POST /api/bot/validate`
+
+### 3. Contracts
+
+- All endpoints are mounted below `/api` and require `Authorization: Bearer <WEBUI_ADMIN_TOKEN>`.
+- Bot response exposes `owner_id_redacted`, never raw `owner_id`.
+- Bot response exposes `secret: { configured: bool, updated_at: datetime | null }`, never `bot_token` or encrypted secret values.
+- `GET /api/bot` returns `active` separately and `items` for the remaining Bot instances; frontend consumers must merge `active` plus `items` when offering instance selection.
+- `POST /api/bot` requires `name`, `owner_id`, and `bot_token`; `enabled` defaults to `true`.
+- `PATCH /api/bot` treats `bot_token` as:
+  - missing: no change
+  - `null`: no change
+  - empty string or whitespace-only string: no change
+  - non-empty string: replace encrypted secret, reset validation identity/status, and mark restart required
+- `POST /api/bot/validate` may accept a temporary non-empty `bot_token`; validation with a temporary token must not replace stored encrypted token material.
+- Enabling one Bot instance disables any previously enabled Bot instance and marks affected instances restart-required.
+
+### 4. Validation & Error Matrix
+
+- Missing or invalid auth -> `401 {"error": {"code": "unauthorized", "message": "认证失败"}}`.
+- Empty `name` on create/update -> `400 validation_error`.
+- Empty `bot_token` on create -> `400 validation_error`.
+- `owner_id <= 0` on create/update -> `400 validation_error`.
+- Creating an enabled Bot while another Bot is enabled -> `400 validation_error`.
+- Missing Bot ID on patch/validate -> `404 not_found`.
+- FastAPI request validation errors must use the redacted `request validation failed` response and must not echo request input.
+
+### 5. Good/Base/Bad Cases
+
+- Good: `POST /api/bot` with valid name, owner ID, and Bot token creates an encrypted Bot instance, returns only redacted owner/secret state, and writes redacted audit.
+- Base: `PATCH /api/bot` with `{}` or blank `bot_token` returns the Bot without changing encrypted token material.
+- Bad: returning a raw `owner_id`, `bot_token`, encrypted secret, admin token, or encryption key from any Bot endpoint or audit payload.
+
+### 6. Tests Required
+
+- Auth protection for read, create, patch, and validate endpoints.
+- Read/create/update responses do not contain Bot token, raw owner ID, admin token, or encryption key.
+- Bot create trims required text, encrypts token, and writes redacted audit.
+- Bot blank/null/missing `bot_token` on patch is a no-op.
+- Bot non-empty `bot_token` on patch replaces encrypted value and audit remains redacted.
+- Bot validation with a temporary token does not replace the stored token.
+- Enabling a Bot leaves exactly one enabled Bot.
+- Malformed request validation does not echo secret-bearing input.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```python
+return {"owner_id": bot.owner_id, "bot_token": payload.bot_token}
+```
+
+This leaks raw owner ID and Bot token into the response.
+
+#### Correct
+
+```python
+return BotInstanceSchema(
+    id=bot.id,
+    name=bot.name,
+    owner_id_redacted=redact_owner_id(bot.owner_id) or "",
+    secret=SecretStateSchema(configured=bool(bot.bot_token_encrypted), updated_at=None),
+    ...,
+)
+```
+
+Return only the redacted owner ID and secret configured state; keep encryption/decryption inside the service layer.
+
 ## Scenario: LLM Provider / Summary Profile Management API
 
 ### 1. Scope / Trigger

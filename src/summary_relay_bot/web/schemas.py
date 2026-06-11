@@ -29,6 +29,13 @@ class BotListResponse(BaseModel):
     items: list[BotInstanceSchema]
 
 
+class BotCreateRequest(BaseModel):
+    name: str
+    owner_id: int
+    bot_token: str
+    enabled: bool = True
+
+
 class BotUpdateRequest(BaseModel):
     id: int
     name: str | None = None

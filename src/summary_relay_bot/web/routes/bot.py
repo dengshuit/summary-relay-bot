@@ -13,7 +13,10 @@ from summary_relay_bot.services.runtime_config import (
     BotInstanceView,
     BotValidationResult,
     RuntimeConfigError,
+    SecretState,
+    create_bot_instance,
     list_bot_instances,
+    redact_owner_id,
     update_bot_instance,
     validate_bot_instance,
 )
@@ -21,6 +24,7 @@ from summary_relay_bot.services.secrets import SecretService
 from summary_relay_bot.web.deps import get_actor, get_secret_service, get_session_factory
 from summary_relay_bot.web.errors import api_error_response
 from summary_relay_bot.web.schemas import (
+    BotCreateRequest,
     BotInstanceSchema,
     BotListResponse,
     BotUpdateRequest,
@@ -81,6 +85,49 @@ async def get_bot_config(
         active=_bot_schema(active),
         items=[schema for item in items if (schema := _bot_schema(item)) is not None],
     )
+
+
+@router.post("", response_model=BotInstanceSchema)
+async def post_bot_config(
+    payload: BotCreateRequest,
+    session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
+    secret_service: Annotated[SecretService, Depends(get_secret_service)],
+    actor: Annotated[str, Depends(get_actor)],
+) -> BotInstanceSchema | JSONResponse:
+    try:
+        async with session_scope(session_factory) as session:
+            bot = await create_bot_instance(
+                session,
+                secret_service=secret_service,
+                name=payload.name,
+                bot_token=payload.bot_token,
+                owner_id=payload.owner_id,
+                enabled=payload.enabled,
+                actor=actor,
+            )
+            schema = _bot_schema(
+                BotInstanceView(
+                    id=bot.id,
+                    name=bot.name,
+                    owner_id_redacted=redact_owner_id(bot.owner_id) or "",
+                    telegram_bot_id=bot.telegram_bot_id,
+                    telegram_username=bot.telegram_username,
+                    enabled=bot.enabled,
+                    status=bot.status,
+                    needs_restart=bot.needs_restart,
+                    last_validated_at=bot.last_validated_at,
+                    secret=SecretState(configured=bool(bot.bot_token_encrypted), updated_at=None),
+                )
+            )
+            if schema is None:
+                raise RuntimeError("created bot instance unexpectedly missing")
+            return schema
+    except RuntimeConfigError as exc:
+        return api_error_response(
+            status_code=400,
+            code="validation_error",
+            message=str(exc),
+        )
 
 
 @router.post("/validate", response_model=BotValidateResponse)

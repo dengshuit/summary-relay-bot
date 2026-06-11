@@ -405,14 +405,14 @@ pre {
   gap: 9px;
   min-width: 0;
   padding: 5px 8px 5px 6px;
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--surface);
 }
 
 .shell-session:hover {
   border-color: var(--border);
-  background: var(--surface-2);
+  background: var(--surface);
 }
 
 .shell-avatar,
@@ -631,6 +631,12 @@ pre {
 .status-dot-blue {
   background: var(--blue);
   box-shadow: 0 0 0 3px var(--blue-soft);
+}
+
+.status-dot.violet,
+.status-dot-violet {
+  background: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
 }
 
 .status-dot.grey,
@@ -1396,6 +1402,30 @@ pre {
   justify-content: flex-end;
 }
 
+.bot-empty-panel {
+  overflow: hidden;
+}
+
+.bot-empty-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.bot-empty-title {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 850;
+}
+
+.bot-empty-sub {
+  max-width: 620px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .bot-detail-grid {
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
 }
@@ -1453,8 +1483,22 @@ pre {
   flex: 0 0 14px;
 }
 
-.engine-page .page-head-row {
+.engine-head-row {
+  align-items: center;
   margin-bottom: -2px;
+}
+
+.page-refresh-button.semi-button,
+.compact-card-actions .semi-button,
+.modal-actions .semi-button {
+  border-radius: var(--radius-sm);
+  font-weight: 800;
+}
+
+.page-refresh-button.semi-button {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
 }
 
 .engine-tabs .semi-tabs-bar {
@@ -1463,13 +1507,43 @@ pre {
 }
 
 .engine-tabs .semi-tabs-tab {
-  padding: 10px 16px;
+  margin-right: 8px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   color: var(--muted);
   font-weight: 800;
 }
 
 .engine-tabs .semi-tabs-tab-active {
+  border-color: var(--border);
+  border-bottom-color: var(--surface);
   color: var(--primary);
+  background: var(--surface);
+}
+
+.engine-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.engine-tab-count {
+  display: grid;
+  min-width: 20px;
+  height: 20px;
+  place-items: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--neutral-soft);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.engine-tabs .semi-tabs-tab-active .engine-tab-count {
+  color: var(--primary);
+  background: var(--primary-soft);
 }
 
 .compact-card-grid {
@@ -1597,6 +1671,7 @@ pre {
 
 .compact-card-actions .semi-button {
   flex: 1;
+  min-width: 0;
 }
 
 .compact-add-card {
@@ -1632,15 +1707,90 @@ pre {
 }
 
 .compact-modal .semi-modal {
-  max-width: 580px;
+  max-width: 620px;
+}
+
+.bot-create-modal .semi-modal {
+  max-width: 540px;
+}
+
+.compact-modal .semi-modal-content {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+}
+
+.compact-modal .semi-modal-header {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
 }
 
 .compact-modal .semi-modal-body {
-  padding-top: 18px;
+  padding: 18px 22px;
+}
+
+.compact-modal .semi-modal-footer {
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.compact-modal-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 850;
+}
+
+.compact-modal-heading-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.compact-modal-heading-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.compact-form-panel {
+  gap: 12px;
 }
 
 .compact-modal .field-block {
   gap: 8px;
+}
+
+.compact-modal .semi-input-wrapper,
+.compact-modal .semi-input-number,
+.compact-modal .semi-select,
+.bot-create-modal .semi-input-wrapper,
+.bot-create-modal .semi-input-number {
+  width: 100%;
+}
+
+.compact-modal .semi-input-wrapper,
+.compact-modal .semi-input-number,
+.compact-modal .semi-select-selection,
+.bot-create-modal .semi-input-wrapper,
+.bot-create-modal .semi-input-number {
+  border-color: var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.compact-modal .semi-input-wrapper:hover,
+.compact-modal .semi-input-number:hover,
+.compact-modal .semi-select-selection:hover,
+.bot-create-modal .semi-input-wrapper:hover,
+.bot-create-modal .semi-input-number:hover {
+  border-color: var(--primary);
 }
 
 .compact-modal .switch-row {

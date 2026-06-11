@@ -1,14 +1,10 @@
 import { Toast } from "../ui/semi";
 import {
-  IconBell,
-  IconChevronDown,
   IconComment,
   IconExit,
   IconExternalOpen,
   IconGithubLogo,
-  IconHelpCircle,
-  IconMenu,
-  IconRefresh
+  IconMenu
 } from "@douyinfe/semi-icons";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -155,28 +151,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="shell-page-title">{activeItem.label}</div>
           </div>
           <div className="shell-topbar-fill" />
-          <button
-            className="shell-icon-btn topbar-aux"
-            type="button"
-            aria-label="刷新页面"
-            onClick={() => window.location.reload()}
-          >
-            <IconRefresh />
-          </button>
-          <button className="shell-icon-btn topbar-aux" type="button" aria-label="通知">
-            <IconBell />
-            {pendingCount > 0 && <span className="shell-dot-badge">{pendingCount}</span>}
-          </button>
-          <button className="shell-icon-btn topbar-aux" type="button" aria-label="帮助">
-            <IconHelpCircle />
-          </button>
-          <div className="shell-session">
-            <div className="shell-avatar">SR</div>
+          <div className="shell-session" aria-label="当前 token 会话">
+            <div className="shell-avatar">AD</div>
             <div className="shell-session-text">
               <div className="shell-session-name">admin</div>
               <div className="shell-session-sub">token 会话</div>
             </div>
-            <IconChevronDown className="shell-session-caret" />
           </div>
           <button className="shell-icon-btn" type="button" aria-label="退出登录" onClick={logout}>
             <IconExit />
