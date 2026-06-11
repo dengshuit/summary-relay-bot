@@ -1488,16 +1488,115 @@ pre {
   margin-bottom: -2px;
 }
 
-.page-refresh-button.semi-button,
-.compact-card-actions .semi-button,
-.modal-actions .semi-button {
+.page .semi-button,
+.compact-modal .semi-button {
+  min-height: 36px;
+  padding: 8px 14px;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: none;
+  font-size: 13px;
   font-weight: 800;
+  line-height: 1.4;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.page .semi-button:not(.semi-button-disabled):not(.semi-button-loading):not(.semi-button-borderless):hover,
+.compact-modal .semi-button:not(.semi-button-disabled):not(.semi-button-loading):not(.semi-button-borderless):hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.page .semi-button-size-small,
+.compact-modal .semi-button-size-small {
+  min-height: 30px;
+  padding: 5px 11px;
+  font-size: 12px;
+}
+
+.page .semi-button-primary,
+.compact-modal .semi-button-primary {
+  border-color: var(--primary);
+  color: #fff;
+  background: var(--primary);
+  box-shadow: 0 8px 20px rgba(99, 91, 255, 0.18);
+}
+
+.page .semi-button-primary:not(.semi-button-disabled):not(.semi-button-loading):not(.semi-button-borderless):hover,
+.compact-modal .semi-button-primary:not(.semi-button-disabled):not(.semi-button-loading):not(.semi-button-borderless):hover {
+  border-color: var(--primary-hover);
+  color: #fff;
+  background: var(--primary-hover);
+  box-shadow: 0 10px 24px rgba(99, 91, 255, 0.2);
+}
+
+.page .semi-button-borderless,
+.compact-modal .semi-button-borderless {
+  border-color: transparent;
+  color: var(--muted);
+  background: transparent;
+  box-shadow: none;
+}
+
+.page .semi-button-borderless:not(.semi-button-disabled):not(.semi-button-loading):hover,
+.compact-modal .semi-button-borderless:not(.semi-button-disabled):not(.semi-button-loading):hover {
+  border-color: transparent;
+  color: var(--primary);
+  background: var(--surface-2);
+}
+
+.page .semi-button-disabled,
+.compact-modal .semi-button-disabled,
+.page .semi-button-disabled:not(.semi-button-borderless):hover,
+.compact-modal .semi-button-disabled:not(.semi-button-borderless):hover {
+  border-color: var(--border);
+  color: var(--muted-2);
+  background: var(--neutral-soft);
+  box-shadow: none;
+}
+
+.page .semi-button-loading,
+.compact-modal .semi-button-loading {
+  box-shadow: none;
+}
+
+.page .semi-button-content,
+.compact-modal .semi-button-content {
+  min-width: 0;
+  gap: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page .semi-button-content-left,
+.compact-modal .semi-button-content-left {
+  margin-right: 7px;
+}
+
+.page .semi-button-content-right,
+.compact-modal .semi-button-content-right {
+  margin-left: 7px;
+}
+
+.page .semi-button svg,
+.compact-modal .semi-button svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
+.page .semi-button-size-small svg,
+.compact-modal .semi-button-size-small svg {
+  width: 14px;
+  height: 14px;
+  flex-basis: 14px;
 }
 
 .page-refresh-button.semi-button {
-  border-color: var(--border-strong);
-  background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
 
@@ -2379,10 +2478,14 @@ pre {
   line-height: 1.5;
 }
 
-.semi-button-primary,
-.semi-button-primary:not(.semi-button-disabled):hover {
+.semi-button-primary {
   background-color: var(--primary);
   border-color: var(--primary);
+}
+
+.semi-button-primary:not(.semi-button-disabled):not(.semi-button-loading):hover {
+  background-color: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 
 .semi-tabs-bar-line.semi-tabs-bar-top .semi-tabs-tab-active {
@@ -2537,7 +2640,13 @@ pre {
 
   .filter-bar > *,
   .filter-bar .semi-input-wrapper,
-  .filter-bar .semi-select {
+  .filter-bar .semi-select,
+  .filter-bar .semi-button,
+  .object-actions .semi-button,
+  .form-actions .semi-button,
+  .modal-actions .semi-button,
+  .load-more .semi-button,
+  .job-trigger .semi-button {
     width: 100%;
     min-width: 0;
   }
