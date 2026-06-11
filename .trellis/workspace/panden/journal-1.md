@@ -340,3 +340,36 @@ Implemented the first SemiAI-style WebUI pass for AppShell and Dashboard; verifi
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: WebUI Bot and Engine Style Rebuild
+
+**Date**: 2026-06-11
+**Task**: WebUI Bot and Engine Style Rebuild
+**Branch**: `master`
+
+### Summary
+
+Rebuilt Bot and Engine pages on the SemiAI-style AppShell/Dashboard baseline, verified typecheck, build, and browser screenshots.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `abc7621` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
