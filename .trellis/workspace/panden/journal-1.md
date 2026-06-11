@@ -439,3 +439,36 @@ Rebuilt the Groups, GroupDetail, and AuditLogs pages on the SemiAI-style WebUI b
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: Align Semi select dropdown styling
+
+**Date**: 2026-06-11
+**Task**: Align Semi select dropdown styling
+**Branch**: `master`
+
+### Summary
+
+Unified Semi Select controls and dropdown option styling for settings pages; validated typecheck, build, and browser style checks.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0e03151` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
