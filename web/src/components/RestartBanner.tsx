@@ -1,8 +1,5 @@
-import { Banner, Button, Collapse, Typography } from "../ui/semi";
-import { IconAlertTriangle } from "@douyinfe/semi-icons";
+import { IconAlertTriangle, IconChevronDown } from "@douyinfe/semi-icons";
 import { useState } from "react";
-
-const { Text } = Typography;
 
 export function RestartBanner({ items }: { items: string[] }) {
   const [open, setOpen] = useState(false);
@@ -11,29 +8,35 @@ export function RestartBanner({ items }: { items: string[] }) {
   }
   return (
     <div className="restart-block">
-      <Banner
-        type="warning"
-        icon={<IconAlertTriangle />}
-        description={
-          <div className="banner-line">
-            <span>有 {items.length} 项配置待重启生效。v1 不做在线热切换，重启服务后生效。</span>
-            <Button theme="borderless" size="small" onClick={() => setOpen((value) => !value)}>
-              {open ? "收起" : "查看详情"}
-            </Button>
-          </div>
-        }
-      />
-      <Collapse activeKey={open ? ["detail"] : []}>
-        <Collapse.Panel header="待重启配置" itemKey="detail">
+      <div className="restart-banner">
+        <div className="restart-banner-icon">
+          <IconAlertTriangle />
+        </div>
+        <div className="restart-banner-text">
+          有 <b>{items.length} 项</b>配置变更待重启生效。重启服务后生效，期间运行仍使用旧配置。
+        </div>
+        <button
+          className="restart-banner-action"
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open ? "收起" : "查看详情"}
+          <IconChevronDown className={open ? "is-open" : ""} />
+        </button>
+      </div>
+      {open && (
+        <div className="restart-detail">
+          <div className="restart-detail-title">待重启生效的变更</div>
           <div className="restart-list">
             {items.map((item) => (
-              <Text key={item} code>
+              <span className="restart-pill" key={item}>
                 {item}
-              </Text>
+              </span>
             ))}
           </div>
-        </Collapse.Panel>
-      </Collapse>
+        </div>
+      )}
     </div>
   );
 }
