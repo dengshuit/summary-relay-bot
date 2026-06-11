@@ -1,11 +1,25 @@
 import { useEffect, useState } from "react";
-import { Button, Card, Collapse, Empty, Input, Select, Skeleton, Typography } from "../ui/semi";
-import { IconRefresh, IconSearch } from "@douyinfe/semi-icons";
+import { Button, Card, Empty, Input, Select, Skeleton, Typography } from "../ui/semi";
+import { IconChevronDown, IconListView, IconRefresh, IconSearch } from "@douyinfe/semi-icons";
 import { api } from "../api/client";
 import type { AuditLog } from "../api/types";
 import { compactJson, formatFullDateTime } from "../utils/format";
 
 const { Title, Text } = Typography;
+
+function auditTone(action: string) {
+  const normalized = action.toLowerCase();
+  if (normalized.includes("delete") || normalized.includes("disable") || normalized.includes("fail")) {
+    return "red";
+  }
+  if (normalized.includes("replace") || normalized.includes("update") || normalized.includes("trigger")) {
+    return "orange";
+  }
+  if (normalized.includes("create") || normalized.includes("set_default")) {
+    return "green";
+  }
+  return "violet";
+}
 
 export function AuditLogs() {
   const [items, setItems] = useState<AuditLog[]>([]);
@@ -39,18 +53,18 @@ export function AuditLogs() {
   }, []);
 
   return (
-    <div className="page">
-      <div className="page-head-row">
+    <div className="page audit-page">
+      <div className="page-head-row audit-head-row">
         <div>
           <Title heading={2}>审计日志</Title>
           <Text type="tertiary">记录管理面板的重要配置变更，before / after 均由后端脱敏。</Text>
         </div>
-        <Button icon={<IconRefresh />} onClick={() => load()}>
+        <Button className="page-refresh-button" icon={<IconRefresh />} onClick={() => load()}>
           刷新
         </Button>
       </div>
 
-      <Card className="filter-card">
+      <Card className="filter-card compact-filter-card audit-filter-card">
         <div className="filter-bar">
           <Select
             value={entityType}
@@ -80,42 +94,61 @@ export function AuditLogs() {
       </Card>
 
       {loading && items.length === 0 ? (
-        <Skeleton active placeholder={<Skeleton.Paragraph rows={8} />} />
+        <div className="panel panel-loading">
+          <div className="panel-body">
+            <Skeleton active placeholder={<Skeleton.Paragraph rows={8} />} />
+          </div>
+        </div>
       ) : items.length === 0 ? (
-        <Empty description="暂无审计日志" />
+        <div className="panel empty-panel">
+          <div className="panel-body">
+            <Empty description="暂无审计日志" />
+          </div>
+        </div>
       ) : (
-        <Card>
-          <div className="timeline">
-            {items.map((item) => (
-              <div className="audit-row" key={item.id}>
-                <div className="audit-dot" />
-                <div className="audit-main">
-                  <div className="audit-line">
-                    <Text strong>{item.actor}</Text>
-                    <Text> {item.action} </Text>
-                    <Text code>{item.entity_type}</Text>
-                    {item.entity_id && <Text type="tertiary"> #{item.entity_id}</Text>}
-                  </div>
-                  <Text type="tertiary" size="small">
-                    {formatFullDateTime(item.created_at)}
-                  </Text>
-                  <Collapse>
-                    <Collapse.Panel header="查看 before / after" itemKey="diff">
-                      <div className="diff-grid">
+        <section className="panel audit-panel">
+          <div className="panel-head">
+            <div>
+              <h2>操作记录</h2>
+              <p>{items.length} 条已加载日志，展开后查看脱敏 before / after。</p>
+            </div>
+            <span className="panel-icon">
+              <IconListView />
+            </span>
+          </div>
+          <div className="panel-body">
+            <div className="timeline audit-timeline">
+              {items.map((item) => (
+                <article className="audit-row audit-activity-row" key={item.id}>
+                  <div className={`audit-dot status-dot-${auditTone(item.action)}`} />
+                  <div className="audit-main">
+                    <div className="audit-line audit-activity-line">
+                      <span className="audit-actor">{item.actor}</span>
+                      <span className="audit-action">{item.action}</span>
+                      <span className="audit-entity">{item.entity_type}</span>
+                      {item.entity_id && <span className="audit-entity-id">#{item.entity_id}</span>}
+                    </div>
+                    <div className="audit-time">{formatFullDateTime(item.created_at)}</div>
+                    <details className="audit-diff-details">
+                      <summary>
+                        <span>查看 before / after</span>
+                        <IconChevronDown />
+                      </summary>
+                      <div className="diff-grid audit-diff-grid">
                         <div>
-                          <Text strong>before</Text>
-                          <pre>{compactJson(item.redacted_before)}</pre>
+                          <div className="diff-title">before</div>
+                          <pre className="audit-pre">{compactJson(item.redacted_before)}</pre>
                         </div>
                         <div>
-                          <Text strong>after</Text>
-                          <pre>{compactJson(item.redacted_after)}</pre>
+                          <div className="diff-title">after</div>
+                          <pre className="audit-pre">{compactJson(item.redacted_after)}</pre>
                         </div>
                       </div>
-                    </Collapse.Panel>
-                  </Collapse>
-                </div>
-              </div>
-            ))}
+                    </details>
+                  </div>
+                </article>
+              ))}
+            </div>
           </div>
           {nextCursor && (
             <div className="load-more">
@@ -124,7 +157,7 @@ export function AuditLogs() {
               </Button>
             </div>
           )}
-        </Card>
+        </section>
       )}
     </div>
   );

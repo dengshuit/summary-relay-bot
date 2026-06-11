@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, Card, Empty, Input, Select, Skeleton, Typography } from "../ui/semi";
-import { IconRefresh, IconSearch } from "@douyinfe/semi-icons";
+import { IconChevronRight, IconRefresh, IconSearch, IconUserGroup } from "@douyinfe/semi-icons";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { GroupListItem, SummaryProfile } from "../api/types";
@@ -8,6 +8,20 @@ import { StatusBadge } from "../components/StatusBadge";
 import { formatDateTime } from "../utils/format";
 
 const { Title, Text } = Typography;
+
+function EnabledStatus({ enabled }: { enabled: boolean }) {
+  const tone = enabled ? "green" : "neutral";
+  return (
+    <span className={`status-pill ${tone}`}>
+      <span className={`status-dot status-dot-${tone}`} />
+      {enabled ? "已启用" : "未启用"}
+    </span>
+  );
+}
+
+function groupName(group: GroupListItem) {
+  return group.title || group.username || String(group.chat_id);
+}
 
 export function Groups() {
   const [groups, setGroups] = useState<GroupListItem[]>([]);
@@ -54,18 +68,18 @@ export function Groups() {
   }, []);
 
   return (
-    <div className="page">
-      <div className="page-head-row">
+    <div className="page groups-page">
+      <div className="page-head-row groups-head-row">
         <div>
           <Title heading={2}>群组</Title>
           <Text type="tertiary">群组由 bot 被拉进群后自动发现入库，这里只配置摘要策略。</Text>
         </div>
-        <Button icon={<IconRefresh />} onClick={() => load()}>
+        <Button className="page-refresh-button" icon={<IconRefresh />} onClick={() => load()}>
           刷新
         </Button>
       </div>
 
-      <Card className="filter-card">
+      <Card className="filter-card compact-filter-card groups-filter-card">
         <div className="filter-bar">
           <Input
             prefix={<IconSearch />}
@@ -109,13 +123,30 @@ export function Groups() {
       </Card>
 
       {loading && groups.length === 0 ? (
-        <Skeleton active placeholder={<Skeleton.Paragraph rows={8} />} />
+        <div className="panel panel-loading">
+          <div className="panel-body">
+            <Skeleton active placeholder={<Skeleton.Paragraph rows={8} />} />
+          </div>
+        </div>
       ) : groups.length === 0 ? (
-        <Empty description="把 bot 拉进群组后会自动出现在这里" />
+        <div className="panel empty-panel">
+          <div className="panel-body">
+            <Empty description="把 bot 拉进群组后会自动出现在这里" />
+          </div>
+        </div>
       ) : (
-        <Card>
-          <div className="table-wrap">
-            <table className="data-table">
+        <section className="panel groups-table-panel">
+          <div className="panel-head">
+            <div>
+              <h2>群组列表</h2>
+              <p>{groups.length} 个已加载群组，点击详情查看摘要配置和任务历史。</p>
+            </div>
+            <span className="panel-icon">
+              <IconUserGroup />
+            </span>
+          </div>
+          <div className="table-wrap groups-table-wrap">
+            <table className="data-table groups-table">
               <thead>
                 <tr>
                   <th>群名</th>
@@ -130,29 +161,52 @@ export function Groups() {
                 {groups.map((group) => (
                   <tr key={group.id}>
                     <td>
-                      <div className="table-title">{group.title || group.username || String(group.chat_id)}</div>
-                      <Text type="tertiary" size="small">
-                        {group.chat_type} · {group.chat_id} · {formatDateTime(group.discovered_at)}
-                      </Text>
+                      <div className="group-cell-main">
+                        <span className="group-avatar">
+                          <IconUserGroup />
+                        </span>
+                        <div className="group-cell-copy">
+                          <Link className="table-title group-title-link" to={`/groups/${group.id}`}>
+                            {groupName(group)}
+                          </Link>
+                          <div className="group-chat-meta">
+                            <span>{group.chat_type}</span>
+                            <span>chat_id {group.chat_id}</span>
+                            <span>发现于 {formatDateTime(group.discovered_at)}</span>
+                          </div>
+                        </div>
+                      </div>
                     </td>
-                    <td>{group.settings.enabled ? "已启用" : "未启用"}</td>
-                    <td>{group.settings.enabled ? `${group.settings.interval_minutes} min` : "-"}</td>
-                    <td>{group.effective_profile?.name || "使用默认"}</td>
+                    <td>
+                      <EnabledStatus enabled={group.settings.enabled} />
+                    </td>
+                    <td>
+                      <span className={group.settings.enabled ? "interval-value" : "muted-text"}>
+                        {group.settings.enabled ? `${group.settings.interval_minutes} min` : "-"}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="profile-value">{group.effective_profile?.name || "使用默认"}</span>
+                    </td>
                     <td>
                       {group.last_summary ? (
                         <div className="last-summary">
                           <StatusBadge status={group.last_summary.status} />
-                          <Text type="tertiary" size="small">
-                            {formatDateTime(group.last_summary.finished_at)}
-                          </Text>
+                          <span className="last-summary-time">{formatDateTime(group.last_summary.finished_at)}</span>
+                          {group.last_summary.error_type && (
+                            <span className="summary-error-type">{group.last_summary.error_type}</span>
+                          )}
                         </div>
                       ) : (
-                        "-"
+                        <span className="status-pill neutral">
+                          <span className="status-dot status-dot-neutral" />
+                          无摘要
+                        </span>
                       )}
                     </td>
                     <td>
-                      <Button component={Link} to={`/groups/${group.id}`} size="small">
-                        详情
+                      <Button component={Link} to={`/groups/${group.id}`} size="small" className="row-arrow-button">
+                        详情 <IconChevronRight />
                       </Button>
                     </td>
                   </tr>
@@ -167,7 +221,7 @@ export function Groups() {
               </Button>
             </div>
           )}
-        </Card>
+        </section>
       )}
     </div>
   );
