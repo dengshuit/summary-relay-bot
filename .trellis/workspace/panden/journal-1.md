@@ -373,3 +373,36 @@ Rebuilt Bot and Engine pages on the SemiAI-style AppShell/Dashboard baseline, ve
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: Fix WebUI bot engine shell polish
+
+**Date**: 2026-06-11
+**Task**: Fix WebUI bot engine shell polish
+**Branch**: `master`
+
+### Summary
+
+Added WebUI Bot creation, finished Engine compact styling, simplified token-session AppShell, updated API contracts, and verified frontend/build/backend/screenshots.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `24b6987` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
