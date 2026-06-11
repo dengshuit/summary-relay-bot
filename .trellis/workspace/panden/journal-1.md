@@ -204,3 +204,36 @@ Added the Batch 05 React management WebUI, plus provider-type LLM client routing
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: Batch 06 deploy smoke docs
+
+**Date**: 2026-06-11
+**Task**: Batch 06 deploy smoke docs
+**Branch**: `master`
+
+### Summary
+
+Implemented monolith WebUI static deployment, Docker multi-stage build config, smoke coverage, and deployment documentation for Batch 06.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `79c1fcf` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
