@@ -14,7 +14,7 @@ from summary_relay_bot.db.repositories import (
     mark_raw_update_status,
     upsert_private_user,
 )
-from summary_relay_bot.services.info_cards import render_private_user_info_card
+from summary_relay_bot.services.info_cards import render_private_text_relay, render_private_user_info_card
 from summary_relay_bot.services.message_extraction import message_type_for_private_copy
 from summary_relay_bot.telegram.errors import classify_telegram_error
 
@@ -56,10 +56,50 @@ async def relay_private_message(
         delivery_status="stored",
     )
 
+    if message_type == "text":
+        await _relay_private_text_message(
+            session=session,
+            bot=bot,
+            owner_id=owner_id,
+            raw_update=raw_update,
+            private_user=private_user,
+            inbound=inbound,
+            user=user,
+            source_message_id=source_message_id,
+            text=getattr(message, "text", "") or "",
+        )
+        return
+
+    await _relay_private_copied_message(
+        session=session,
+        bot=bot,
+        owner_id=owner_id,
+        raw_update=raw_update,
+        private_user=private_user,
+        inbound=inbound,
+        user=user,
+        source_chat_id=source_chat_id,
+        source_message_id=source_message_id,
+    )
+
+
+async def _relay_private_text_message(
+    *,
+    session: AsyncSession,
+    bot: Bot,
+    owner_id: int,
+    raw_update: TelegramUpdate,
+    private_user: PrivateUser,
+    inbound: Any,
+    user: Any,
+    source_message_id: int,
+    text: str,
+) -> None:
     try:
-        info_card = await bot.send_message(
+        delivered = await bot.send_message(
             owner_id,
-            render_private_user_info_card(user, source_message_id),
+            render_private_text_relay(user, text),
+            parse_mode="HTML",
         )
     except Exception as exc:
         failure = classify_telegram_error(exc)
@@ -68,8 +108,9 @@ async def relay_private_message(
         inbound.error_message = failure.message
         await create_delivery_attempt(
             session,
-            purpose="private_info_card",
+            purpose="private_text_message",
             target_chat_id=owner_id,
+            source_message_id=source_message_id,
             status="failed",
             error_type=failure.error_type,
             error_message=failure.message,
@@ -79,33 +120,84 @@ async def relay_private_message(
             raw_update,
             "failed",
             error_type=failure.error_type,
-            error_message="private relay info card delivery failed",
+            error_message="private relay text delivery failed",
         )
         return
 
-    info_message_id = int(getattr(info_card, "message_id"))
-    info_attempt = await create_delivery_attempt(
+    delivered_message_id = getattr(delivered, "message_id", None)
+    inbound.admin_message_id = delivered_message_id
+    text_attempt = await create_delivery_attempt(
         session,
-        purpose="private_info_card",
+        purpose="private_text_message",
         target_chat_id=owner_id,
-        result_message_id=info_message_id,
+        source_message_id=source_message_id,
+        result_message_id=delivered_message_id,
         status="sent",
     )
-    info_mapped = await _create_reply_map_or_warn(
+    if delivered_message_id is None:
+        inbound.delivery_status = "partial_failed"
+        inbound.error_type = "missing_delivered_message_id"
+        inbound.error_message = "sendMessage returned no message_id"
+        await mark_delivery_attempt_status(
+            session,
+            text_attempt,
+            "failed",
+            error_type="missing_delivered_message_id",
+            error_message="sendMessage returned no message_id",
+        )
+        await _notify_admin(
+            bot,
+            owner_id,
+            f"The relayed user message could not be mapped safely. Use /reply {private_user.telegram_user_id} <message>.",
+        )
+        await mark_raw_update_status(
+            session,
+            raw_update,
+            "private_relay_partial",
+            error_type=inbound.error_type,
+            error_message=inbound.error_message,
+        )
+        return
+
+    mapped = await _create_reply_map_or_warn(
         session=session,
         bot=bot,
         owner_id=owner_id,
         private_user=private_user,
         private_message=inbound,
-        attempt=info_attempt,
-        admin_message_id=info_message_id,
-        source_kind="info_card",
+        attempt=text_attempt,
+        admin_message_id=int(delivered_message_id),
+        source_kind="text_message",
     )
-    partial_failure = not info_mapped
-    if not info_mapped:
+    if not mapped:
+        inbound.delivery_status = "partial_failed"
         inbound.error_type = "reply_mapping_failed"
-        inbound.error_message = "info card reply mapping failed"
+        inbound.error_message = "relayed text reply mapping failed"
+        await mark_raw_update_status(
+            session,
+            raw_update,
+            "private_relay_partial",
+            error_type=inbound.error_type,
+            error_message=inbound.error_message,
+        )
+        return
 
+    inbound.delivery_status = "sent"
+    await mark_raw_update_status(session, raw_update, "private_relayed")
+
+
+async def _relay_private_copied_message(
+    *,
+    session: AsyncSession,
+    bot: Bot,
+    owner_id: int,
+    raw_update: TelegramUpdate,
+    private_user: PrivateUser,
+    inbound: Any,
+    user: Any,
+    source_chat_id: int,
+    source_message_id: int,
+) -> None:
     try:
         copied = await bot.copy_message(
             chat_id=owner_id,
@@ -114,7 +206,7 @@ async def relay_private_message(
         )
     except Exception as exc:
         failure = classify_telegram_error(exc)
-        inbound.delivery_status = "partial_failed"
+        inbound.delivery_status = "failed" if failure.retryable else "blocked"
         inbound.error_type = failure.error_type
         inbound.error_message = failure.message
         await create_delivery_attempt(
@@ -130,12 +222,12 @@ async def relay_private_message(
         await _notify_admin(
             bot,
             owner_id,
-            "Could not copy the user's message. Reply to the info card if a mapping was created.",
+            f"Could not copy the user's message. Use /reply {private_user.telegram_user_id} <message>.",
         )
         await mark_raw_update_status(
             session,
             raw_update,
-            "private_relay_partial",
+            "failed",
             error_type=failure.error_type,
             error_message="private relay copyMessage failed",
         )
@@ -152,6 +244,7 @@ async def relay_private_message(
         result_message_id=copied_message_id,
         status="sent",
     )
+    partial_failure = False
     if copied_message_id is None:
         partial_failure = True
         inbound.error_type = "missing_copied_message_id"
@@ -184,6 +277,21 @@ async def relay_private_message(
             inbound.error_type = "reply_mapping_failed"
             inbound.error_message = "copied message reply mapping failed"
 
+    context_mapped = await _send_context_card_for_copied_message(
+        session=session,
+        bot=bot,
+        owner_id=owner_id,
+        private_user=private_user,
+        private_message=inbound,
+        user=user,
+        source_message_id=source_message_id,
+        copied_message_id=copied_message_id,
+    )
+    partial_failure = partial_failure or not context_mapped
+    if not context_mapped and inbound.error_type is None:
+        inbound.error_type = "reply_mapping_failed"
+        inbound.error_message = "context card reply mapping failed"
+
     if partial_failure:
         inbound.delivery_status = "partial_failed"
         await mark_raw_update_status(
@@ -196,6 +304,67 @@ async def relay_private_message(
     else:
         inbound.delivery_status = "sent"
         await mark_raw_update_status(session, raw_update, "private_relayed")
+
+
+async def _send_context_card_for_copied_message(
+    *,
+    session: AsyncSession,
+    bot: Bot,
+    owner_id: int,
+    private_user: PrivateUser,
+    private_message: Any,
+    user: Any,
+    source_message_id: int,
+    copied_message_id: int | None,
+) -> bool:
+    try:
+        info_card = await bot.send_message(
+            owner_id,
+            render_private_user_info_card(user, source_message_id),
+            reply_to_message_id=copied_message_id,
+        )
+    except Exception as exc:
+        failure = classify_telegram_error(exc)
+        await create_delivery_attempt(
+            session,
+            purpose="private_context_card",
+            target_chat_id=owner_id,
+            source_message_id=source_message_id,
+            status="failed",
+            error_type=failure.error_type,
+            error_message=failure.message,
+        )
+        return False
+
+    info_message_id = getattr(info_card, "message_id", None)
+    info_attempt = await create_delivery_attempt(
+        session,
+        purpose="private_context_card",
+        target_chat_id=owner_id,
+        source_message_id=source_message_id,
+        result_message_id=info_message_id,
+        status="sent",
+    )
+    if info_message_id is None:
+        await mark_delivery_attempt_status(
+            session,
+            info_attempt,
+            "failed",
+            error_type="missing_context_message_id",
+            error_message="context card sendMessage returned no message_id",
+        )
+        return False
+
+    return await _create_reply_map_or_warn(
+        session=session,
+        bot=bot,
+        owner_id=owner_id,
+        private_user=private_user,
+        private_message=private_message,
+        attempt=info_attempt,
+        admin_message_id=int(info_message_id),
+        source_kind="context_card",
+    )
 
 
 async def _create_reply_map_or_warn(

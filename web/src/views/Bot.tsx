@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api/client';
-import { BotInstance } from '../api/types';
+import { BotInstance, DashboardData } from '../api/types';
 import {
   Bot,
   RefreshCw,
@@ -25,6 +25,7 @@ export default function BotConfig() {
   const [selectedBotId, setSelectedBotId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<DashboardData['telegram_startup'] | null>(null);
 
   // Edit fields
   const [name, setName] = useState('');
@@ -51,8 +52,12 @@ export default function BotConfig() {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await api.getBots();
+      const [res, dashboard] = await Promise.all([
+        api.getBots(),
+        api.getDashboard().catch(() => null),
+      ]);
       setBots(res.items);
+      setRuntimeStatus(dashboard?.telegram_startup ?? null);
       const activeId = selectId ? Number(selectId) : (res.active ?? res.items[0]?.id ?? null);
       setSelectedBotId(activeId);
       loadBotFields(activeId, res.items);
@@ -84,6 +89,16 @@ export default function BotConfig() {
   };
 
   const selectedBot = bots.find(b => b.id === selectedBotId);
+  const runtimeRunning = runtimeStatus?.status === 'running';
+  const runtimeLabel = runtimeStatus
+    ? runtimeRunning
+      ? '运行中'
+      : runtimeStatus.status === 'failed'
+        ? '启动失败'
+        : runtimeStatus.status === 'no_enabled_bot'
+          ? '未启用'
+          : runtimeStatus.status
+    : '未知';
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -159,6 +174,7 @@ export default function BotConfig() {
       });
       setValidationSucceeded(res.success);
       setValidationResult(res.detail || '已成功建立 Bot 双向通讯。');
+      await fetchBots(selectedBotId);
     } catch (err: any) {
       setValidationSucceeded(false);
       setValidationResult('校验发生不可恢复的错误: ' + err.message);
@@ -322,12 +338,12 @@ export default function BotConfig() {
             {/* Status card */}
             <div className="bg-white border border-gray-100 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.02)] overflow-hidden transition-all duration-300 hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
               <div className="px-5 py-4 border-b border-gray-100/80 bg-slate-50/50">
-                <h3 className="text-[14px] font-bold text-gray-800">网关就绪度及属性</h3>
+                <h3 className="text-[14px] font-bold text-gray-800">Bot 状态及属性</h3>
               </div>
               <div className="p-5 space-y-4 text-[14px]">
                 {/* Validator status line */}
                 <div className="flex items-center justify-between">
-                  <span className="text-gray-500 font-medium">配置健康度</span>
+                  <span className="text-gray-500 font-medium">Token 校验状态</span>
                   <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
                     selectedBot?.status === 'valid'
                       ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
@@ -341,6 +357,22 @@ export default function BotConfig() {
                   <span className="text-gray-500 font-medium">上次校验时间</span>
                   <span className="font-mono text-gray-700 text-[13px] text-right font-medium">
                     {selectedBot?.last_validated_at ? new Date(selectedBot.last_validated_at).toLocaleTimeString() : '尚未校验'}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-500 font-medium">Polling 运行时</span>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                      runtimeRunning
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                        : runtimeStatus?.status === 'failed'
+                          ? 'bg-rose-50 text-rose-700 border border-rose-100'
+                          : 'bg-slate-50 text-slate-600 border border-slate-200'
+                    }`}
+                    title={runtimeStatus?.detail || undefined}
+                  >
+                    {runtimeLabel}
                   </span>
                 </div>
 
