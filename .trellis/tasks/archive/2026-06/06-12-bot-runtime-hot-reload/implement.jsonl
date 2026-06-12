@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/web-api-contracts.md", "reason": "Bot API hot reload touches /api/bot contracts, secret redaction, owner ID redaction, and restart-required semantics."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "The feature spans Web API, service layer, runtime lifecycle, scheduler, Telegram handlers, and dashboard state."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Implementation should reuse existing Bot config, scheduler, and summary job helpers instead of duplicating lifecycle logic."}

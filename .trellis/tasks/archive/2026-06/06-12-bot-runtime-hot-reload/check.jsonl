@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/web-api-contracts.md", "reason": "Check route responses, secret redaction, validation errors, and Bot instance management API compatibility."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check that runtime state and reload outcomes remain consistent across API, service, database, scheduler, and dashboard boundaries."}
