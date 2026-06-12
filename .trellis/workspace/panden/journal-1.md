@@ -505,3 +505,36 @@ Implemented in-process Telegram runtime hot reload, runtime_busy conflict handli
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: WebUI API contract alignment
+
+**Date**: 2026-06-12
+**Task**: WebUI API contract alignment
+**Branch**: `master`
+
+### Summary
+
+Aligned backend management APIs with the rewritten WebUI contract, added summaries/private relays/runtime reload/model APIs, updated frontend API usage, tests, docs, and completed smoke validation.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `42e2295` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
