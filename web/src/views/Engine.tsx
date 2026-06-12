@@ -139,14 +139,6 @@ export default function Engine() {
     fetchEngineData();
   }, []);
 
-  // Sync provSupportedModels when providerModal or provType changes
-  useEffect(() => {
-    if (providerModal && !editingProviderId) {
-      const list = TYPE_PRESETS[provType] || TYPE_PRESETS.openai_compatible;
-      setProvSupportedModels(list);
-    }
-  }, [provType, providerModal, editingProviderId]);
-
   // Sync profileModels when profProviderId changes in profile modal
   useEffect(() => {
     if (profileModal && profProviderId) {
@@ -239,10 +231,7 @@ export default function Engine() {
     setProvType('openai');
     setProvBaseUrl('');
     setProvApiKey('');
-
-    const defaults = TYPE_PRESETS['openai'];
-    setProvSupportedModels(defaults);
-
+    setProvSupportedModels([]);
     setProvEnabled(true);
     setProviderModal(true);
   };
@@ -254,9 +243,7 @@ export default function Engine() {
     setProvBaseUrl(p.base_url || '');
     setProvApiKey(''); // replacement-only
 
-    const list = p.models && p.models.length > 0 ? p.models : (TYPE_PRESETS[p.provider_type] || TYPE_PRESETS.openai_compatible);
-    setProvSupportedModels(list);
-
+    setProvSupportedModels(p.models && p.models.length > 0 ? p.models : []);
     setProvEnabled(p.enabled);
     setProviderModal(true);
   };
@@ -274,7 +261,7 @@ export default function Engine() {
     e.preventDefault();
     if (!provName.trim()) return;
     if (provSupportedModels.length === 0) {
-      alert('请确保模型列表不为空！');
+      alert('当前渠道没有配置模型，请先在模型列表中添加至少一个模型。');
       return;
     }
 
