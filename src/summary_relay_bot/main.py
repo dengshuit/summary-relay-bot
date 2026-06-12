@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Mapping, NoReturn
 
 from aiogram import Bot, Dispatcher
+from aiogram.exceptions import TelegramNetworkError, TelegramServerError
 from fastapi import FastAPI
 import uvicorn
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -32,6 +33,7 @@ LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 TELEGRAM_STARTUP_READY = "ready"
 TELEGRAM_STARTUP_NO_ENABLED_BOT = "no_enabled_bot"
 TELEGRAM_STARTUP_BOT_SECRET_ERROR = "bot_secret_error"
+POLLING_IDENTITY_RETRY_DELAYS = (1.0, 2.0)
 
 
 @dataclass(slots=True)
@@ -225,6 +227,7 @@ async def start_polling(
     try:
         await ensure_polling_delivery(resources.bot, resources.config)
         await setup_command_menus(resources.bot, resources.owner_id)
+        await warm_up_bot_identity(resources.bot)
         await resources.scheduler.start()
         if ready_event is not None:
             ready_event.set()
@@ -232,6 +235,24 @@ async def start_polling(
     finally:
         await resources.scheduler.stop()
         await resources.bot.session.close()
+
+
+async def warm_up_bot_identity(bot: Bot) -> None:
+    max_attempts = len(POLLING_IDENTITY_RETRY_DELAYS) + 1
+    for attempt_index in range(max_attempts):
+        try:
+            await bot.me()
+            return
+        except (TelegramNetworkError, TelegramServerError) as exc:
+            if attempt_index == max_attempts - 1:
+                raise
+            delay_seconds = POLLING_IDENTITY_RETRY_DELAYS[attempt_index]
+            logger.warning(
+                "Telegram bot identity preflight failed; retrying in %.1fs: %s",
+                delay_seconds,
+                exc,
+            )
+            await asyncio.sleep(delay_seconds)
 
 
 async def start_web_api(runtime_app: RuntimeApp) -> None:

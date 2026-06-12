@@ -12,6 +12,7 @@ from summary_relay_bot.db.session import session_scope
 from summary_relay_bot.main import (
     LOG_DATE_FORMAT,
     LOG_FORMAT,
+    POLLING_IDENTITY_RETRY_DELAYS,
     TELEGRAM_STARTUP_BOT_SECRET_ERROR,
     TELEGRAM_STARTUP_NO_ENABLED_BOT,
     TELEGRAM_STARTUP_READY,
@@ -20,11 +21,13 @@ from summary_relay_bot.main import (
     load_telegram_startup_state,
     run_runtime_app,
     start_polling,
+    warm_up_bot_identity,
 )
 from summary_relay_bot.services.runtime_config import create_bot_instance
 from summary_relay_bot.services.secrets import SecretService
 from summary_relay_bot.services.summary_jobs import SummaryReloadGate
 from summary_relay_bot.services.telegram_runtime import (
+    TELEGRAM_RUNTIME_FAILED,
     TELEGRAM_RUNTIME_NO_ENABLED_BOT,
     TELEGRAM_RUNTIME_RUNNING,
     RuntimeBusyError,
@@ -43,6 +46,11 @@ class FakeTelegramSession:
 class FakeBot:
     def __init__(self) -> None:
         self.session = FakeTelegramSession()
+        self.me_calls = 0
+
+    async def me(self) -> object:
+        self.me_calls += 1
+        return SimpleNamespace(id=123, username="fake_bot")
 
 
 class FakeScheduler:
@@ -418,8 +426,49 @@ async def test_start_polling_uses_runtime_owner_id_for_command_menu(monkeypatch)
     assert scheduler.started is True
     assert scheduler.stopped is True
     assert dispatcher.started_with is bot
+    assert bot.me_calls == 1
     assert bot.session.closed is True
     assert engine.disposed is False
+
+
+async def test_warm_up_bot_identity_retries_transient_network_errors(monkeypatch) -> None:
+    observed: dict[str, object] = {"sleep_delays": []}
+
+    class FlakyBot(FakeBot):
+        async def me(self) -> object:
+            self.me_calls += 1
+            if self.me_calls == 1:
+                raise RuntimeError("wrapped")
+            return SimpleNamespace(id=123, username="fake_bot")
+
+    class NetworkFlakyBot(FakeBot):
+        async def me(self) -> object:
+            self.me_calls += 1
+            if self.me_calls == 1:
+                from aiogram.exceptions import TelegramNetworkError
+
+                raise TelegramNetworkError(method="getMe", message="server disconnected")
+            return SimpleNamespace(id=123, username="fake_bot")
+
+    async def fake_sleep(delay: float) -> None:
+        observed["sleep_delays"].append(delay)
+
+    monkeypatch.setattr("summary_relay_bot.main.asyncio.sleep", fake_sleep)
+
+    bot = NetworkFlakyBot()
+    await warm_up_bot_identity(bot)
+
+    assert bot.me_calls == 2
+    assert observed["sleep_delays"] == [POLLING_IDENTITY_RETRY_DELAYS[0]]
+
+    wrapped = FlakyBot()
+    try:
+        await warm_up_bot_identity(wrapped)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("expected non-TelegramNetworkError to propagate without retry")
+    assert wrapped.me_calls == 1
 
 
 async def test_runtime_manager_start_from_db_without_enabled_bot_sets_dynamic_state(tmp_path) -> None:
@@ -435,6 +484,92 @@ async def test_runtime_manager_start_from_db_without_enabled_bot_sets_dynamic_st
         state = runtime_app.telegram_runtime.state_snapshot()
         assert state.status == TELEGRAM_RUNTIME_NO_ENABLED_BOT
         assert state.detail == "no enabled bot instance is configured"
+        assert runtime_app.telegram_runtime.resources is None
+    finally:
+        await runtime_app.engine.dispose()
+
+
+async def test_runtime_manager_keeps_polling_task_after_ready(tmp_path) -> None:
+    encryption_key = SecretService.generate_key()
+    service = SecretService(encryption_key)
+    database_url = await _create_sqlite_database(tmp_path / "manager-running.db")
+    engine, factory = await _session_factory(database_url)
+    async with session_scope(factory) as session:
+        await create_bot_instance(
+            session,
+            secret_service=service,
+            name="Main bot",
+            bot_token="123456:AA-runtime-secret-token",
+            owner_id=3003,
+            enabled=True,
+        )
+    await engine.dispose()
+
+    polling_can_finish = asyncio.Event()
+    polling_started = False
+
+    async def fake_start_polling(resources, *, ready_event=None) -> None:
+        nonlocal polling_started
+        polling_started = True
+        if ready_event is not None:
+            ready_event.set()
+        await polling_can_finish.wait()
+
+    bootstrap_config = BootstrapConfig(
+        database_url=database_url,
+        settings_encryption_key=encryption_key,
+        webui_admin_token="admin-secret",
+    )
+    runtime_app = await build_runtime_app(bootstrap_config, env={})
+    runtime_app.telegram_runtime.start_polling = fake_start_polling
+    try:
+        await runtime_app.telegram_runtime.start_from_db()
+
+        assert polling_started is True
+        assert runtime_app.telegram_runtime.resources is not None
+        assert runtime_app.telegram_runtime.state_snapshot().status == TELEGRAM_RUNTIME_RUNNING
+        task = runtime_app.telegram_runtime._polling_task
+        assert task is not None
+        assert task.done() is False
+    finally:
+        polling_can_finish.set()
+        await runtime_app.telegram_runtime.stop()
+        await runtime_app.engine.dispose()
+
+
+async def test_runtime_manager_marks_failed_when_polling_start_fails(tmp_path) -> None:
+    encryption_key = SecretService.generate_key()
+    service = SecretService(encryption_key)
+    database_url = await _create_sqlite_database(tmp_path / "manager-start-failed.db")
+    engine, factory = await _session_factory(database_url)
+    async with session_scope(factory) as session:
+        await create_bot_instance(
+            session,
+            secret_service=service,
+            name="Main bot",
+            bot_token="123456:AA-runtime-secret-token",
+            owner_id=3003,
+            enabled=True,
+        )
+    await engine.dispose()
+
+    async def fake_start_polling(resources, *, ready_event=None) -> None:
+        raise RuntimeError("polling start failed")
+
+    bootstrap_config = BootstrapConfig(
+        database_url=database_url,
+        settings_encryption_key=encryption_key,
+        webui_admin_token="admin-secret",
+    )
+    runtime_app = await build_runtime_app(bootstrap_config, env={})
+    runtime_app.telegram_runtime.start_polling = fake_start_polling
+    try:
+        await runtime_app.telegram_runtime.start_from_db()
+
+        state = runtime_app.telegram_runtime.state_snapshot()
+        assert state.status == TELEGRAM_RUNTIME_FAILED
+        assert state.detail == "Telegram runtime failed to start"
+        assert state.last_reload_error == "RuntimeError"
         assert runtime_app.telegram_runtime.resources is None
     finally:
         await runtime_app.engine.dispose()

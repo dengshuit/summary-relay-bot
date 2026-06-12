@@ -214,17 +214,18 @@ class TelegramRuntimeManager:
         self._polling_task = task
         task.add_done_callback(self._polling_done)
         ready_task = asyncio.create_task(ready_event.wait(), name="telegram-polling-ready")
-        done, pending = await asyncio.wait(
+        done, _pending = await asyncio.wait(
             {task, ready_task},
             return_when=asyncio.FIRST_COMPLETED,
         )
-        for pending_task in pending:
-            pending_task.cancel()
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
         if task in done:
+            if not ready_task.done():
+                ready_task.cancel()
+                await asyncio.gather(ready_task, return_exceptions=True)
             task.result()
             raise RuntimeError("Telegram polling stopped during startup")
+        if ready_task in done:
+            return
 
     def _polling_done(self, task: asyncio.Task[None]) -> None:
         if self._polling_task is not task:
