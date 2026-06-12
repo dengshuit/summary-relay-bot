@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, FastAPI
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from summary_relay_bot.config import BootstrapConfig
+from summary_relay_bot.config import AppConfig, BootstrapConfig
 from summary_relay_bot.services.secrets import SecretService
 from summary_relay_bot.services.telegram_runtime import TelegramRuntimeManager
 from summary_relay_bot.web.auth import require_admin_token
@@ -30,6 +30,7 @@ from summary_relay_bot.web.static import mount_webui_static
 def create_web_app(
     *,
     bootstrap_config: BootstrapConfig,
+    app_config: AppConfig | None = None,
     session_factory: async_sessionmaker[AsyncSession],
     secret_service: SecretService,
     telegram_startup: object,
@@ -38,6 +39,10 @@ def create_web_app(
 ) -> FastAPI:
     app = FastAPI(title="Summary Relay Bot Web API")
     app.state.bootstrap_config = bootstrap_config
+    app.state.app_config = app_config or AppConfig.from_bootstrap_runtime(
+        bootstrap_config,
+        env={},
+    )
     app.state.session_factory = session_factory
     app.state.secret_service = secret_service
     app.state.telegram_startup = telegram_startup

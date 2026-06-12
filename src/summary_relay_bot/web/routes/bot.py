@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from summary_relay_bot.config import AppConfig
 from summary_relay_bot.db.session import session_scope
 from summary_relay_bot.services.runtime_config import (
     BotInstanceNotFoundError,
@@ -24,6 +25,7 @@ from summary_relay_bot.services.secrets import SecretService
 from summary_relay_bot.services.telegram_runtime import RuntimeBusyError, TelegramRuntimeManager
 from summary_relay_bot.web.deps import (
     get_actor,
+    get_app_config,
     get_secret_service,
     get_session_factory,
     get_telegram_runtime,
@@ -178,6 +180,7 @@ async def post_bot_config(
 @router.post("/validate", response_model=BotValidateResponse)
 async def validate_bot_config(
     payload: BotValidateRequest,
+    app_config: Annotated[AppConfig, Depends(get_app_config)],
     session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
     secret_service: Annotated[SecretService, Depends(get_secret_service)],
 ) -> BotValidateResponse | JSONResponse:
@@ -191,6 +194,7 @@ async def validate_bot_config(
                 session,
                 secret_service=secret_service,
                 bot_instance_id=payload.id,
+                telegram_api_proxy=app_config.telegram_api_proxy,
                 **validate_fields,
             )
     except BotInstanceNotFoundError:

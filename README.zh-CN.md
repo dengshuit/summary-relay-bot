@@ -72,6 +72,7 @@ python3 -c "from summary_relay_bot.services.secrets import SecretService; print(
 | `SCHEDULER_TIMEZONE` | `UTC` | 调度器时区。 |
 | `SCHEDULER_MISFIRE_GRACE_SECONDS` | `300` | 调度器 misfire 宽限时间。 |
 | `SCHEDULER_COALESCE` | `true` | 服务停机恢复后是否合并错过的调度。 |
+| `TELEGRAM_API_PROXY` | 空 | 可选 Telegram Bot API 出站代理。需要代理访问 Telegram 时配置，例如 `socks5://host.docker.internal:7890` 或 `http://proxy:8080`。 |
 
 不要提交真实 token、数据库密码、加密密钥、管理员 token 或 API key。
 
@@ -242,6 +243,8 @@ Secret 字段只支持替换：
 4. 管理员先在私聊中向 bot 发送 `/start`，再等待摘要或中转通知。
 5. 将 bot 加入需要采集的群组。
 6. 如果收不到普通群消息，检查 BotFather privacy mode，并在调整后重新把 bot 加入群组。
+
+如果 WebUI 里的 Bot 可用性测试失败，先确认运行 bot 的进程或容器能访问 `https://api.telegram.org`。需要代理时配置 `TELEGRAM_API_PROXY` 后重启服务；该配置会同时用于 Bot token 校验、polling、摘要投递和私聊中转。
 
 该 bot 设计上在群内保持静默。摘要和管理响应只发送到管理员私聊。
 

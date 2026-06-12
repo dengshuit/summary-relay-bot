@@ -1,6 +1,7 @@
 import {
   DashboardData,
   BotInstance,
+  BotValidationResponse,
   LLMProvider,
   SummaryProfile,
   GroupItem,
@@ -128,8 +129,8 @@ export const api = {
     return apiRequest<BotInstance>('PATCH', '/api/bot', payload);
   },
 
-  async validateBot(data: { id: number | string; bot_token?: string | null }): Promise<{ success: boolean; detail: string; status: string; bot_id: number | null; username: string | null }> {
-    return apiRequest<{ success: boolean; detail: string; status: string; bot_id: number | null; username: string | null }>('POST', '/api/bot/validate', {
+  async validateBot(data: { id: number | string; bot_token?: string | null }): Promise<BotValidationResponse> {
+    return apiRequest<BotValidationResponse>('POST', '/api/bot/validate', {
       ...data,
       id: Number(data.id),
     });

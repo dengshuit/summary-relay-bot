@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import httpx
+from aiohttp_socks import ProxyConnectionError
+from aiogram.exceptions import TelegramNetworkError
 from sqlalchemy import select
 
-from summary_relay_bot.config import BootstrapConfig
+from summary_relay_bot.config import AppConfig, BootstrapConfig
 from summary_relay_bot.db.models import AuditLog, BotInstance
 from summary_relay_bot.db.session import session_scope
 from summary_relay_bot.services import runtime_config
@@ -28,9 +30,14 @@ def _bootstrap_config() -> BootstrapConfig:
     )
 
 
-def _web_app(session_factory, bootstrap_config: BootstrapConfig):
+def _web_app(
+    session_factory,
+    bootstrap_config: BootstrapConfig,
+    app_config: AppConfig | None = None,
+):
     return create_web_app(
         bootstrap_config=bootstrap_config,
+        app_config=app_config,
         session_factory=session_factory,
         secret_service=SecretService(bootstrap_config.settings_encryption_key),
         telegram_startup={
@@ -425,8 +432,13 @@ async def test_patch_bot_name_updates_without_marking_restart(session_factory) -
 
 
 async def test_validate_bot_updates_status_without_audit_log(session_factory, monkeypatch) -> None:
-    async def fake_fetch_bot_identity(bot_token: str) -> runtime_config.BotIdentity:
+    async def fake_fetch_bot_identity(
+        bot_token: str,
+        *,
+        telegram_api_proxy: str | None = None,
+    ) -> runtime_config.BotIdentity:
         assert bot_token == "123456:main-secret"
+        assert telegram_api_proxy is None
         return runtime_config.BotIdentity(
             telegram_bot_id=7654321098,
             telegram_username="summary_relay_bot",
@@ -476,8 +488,13 @@ async def test_validate_bot_with_non_empty_token_does_not_replace_stored_secret(
     session_factory,
     monkeypatch,
 ) -> None:
-    async def fake_fetch_bot_identity(bot_token: str) -> runtime_config.BotIdentity:
+    async def fake_fetch_bot_identity(
+        bot_token: str,
+        *,
+        telegram_api_proxy: str | None = None,
+    ) -> runtime_config.BotIdentity:
         assert bot_token == "123456:temporary-secret"
+        assert telegram_api_proxy is None
         return runtime_config.BotIdentity(
             telegram_bot_id=123456,
             telegram_username="temporary_bot",
@@ -517,6 +534,149 @@ async def test_validate_bot_with_non_empty_token_does_not_replace_stored_secret(
         assert bot.status == "unvalidated"
         audit_actions = [row.action for row in (await session.scalars(select(AuditLog))).all()]
     assert "replace_bot_token" not in audit_actions
+
+
+async def test_validate_bot_classifies_telegram_network_errors(
+    session_factory,
+    monkeypatch,
+) -> None:
+    async def fake_fetch_bot_identity(
+        bot_token: str,
+        *,
+        telegram_api_proxy: str | None = None,
+    ) -> runtime_config.BotIdentity:
+        assert telegram_api_proxy is None
+        raise TelegramNetworkError(method="getMe", message="connection failed")
+
+    monkeypatch.setattr(runtime_config, "fetch_bot_identity", fake_fetch_bot_identity)
+    bootstrap_config = _bootstrap_config()
+    secret_service = SecretService(bootstrap_config.settings_encryption_key)
+    async with session_scope(session_factory) as session:
+        bot = await create_bot_instance(
+            session,
+            secret_service=secret_service,
+            name="Main bot",
+            bot_token="123456:stored-secret",
+            owner_id=1001,
+            enabled=True,
+        )
+        bot_id = bot.id
+
+    response = await _request(
+        _web_app(session_factory, bootstrap_config),
+        "POST",
+        "/api/bot/validate",
+        json={"id": bot_id, "bot_token": None},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is False
+    assert payload["status"] == "error"
+    assert payload["error_type"] == "telegram_transient"
+    assert payload["error_message"] == "Telegram API is temporarily unreachable"
+    assert payload["detail"] == "Telegram API is temporarily unreachable"
+    assert "stored-secret" not in response.text
+
+
+async def test_validate_bot_classifies_proxy_errors(
+    session_factory,
+    monkeypatch,
+) -> None:
+    async def fake_fetch_bot_identity(
+        bot_token: str,
+        *,
+        telegram_api_proxy: str | None = None,
+    ) -> runtime_config.BotIdentity:
+        assert telegram_api_proxy == "socks5://127.0.0.1:1"
+        raise ProxyConnectionError("proxy connection failed")
+
+    monkeypatch.setattr(runtime_config, "fetch_bot_identity", fake_fetch_bot_identity)
+    bootstrap_config = _bootstrap_config()
+    app_config = AppConfig.from_bootstrap_runtime(
+        bootstrap_config,
+        env={"TELEGRAM_API_PROXY": "socks5://127.0.0.1:1"},
+    )
+    secret_service = SecretService(bootstrap_config.settings_encryption_key)
+    async with session_scope(session_factory) as session:
+        bot = await create_bot_instance(
+            session,
+            secret_service=secret_service,
+            name="Main bot",
+            bot_token="123456:stored-secret",
+            owner_id=1001,
+            enabled=True,
+        )
+        bot_id = bot.id
+
+    response = await _request(
+        _web_app(session_factory, bootstrap_config, app_config=app_config),
+        "POST",
+        "/api/bot/validate",
+        json={"id": bot_id, "bot_token": None},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is False
+    assert payload["status"] == "error"
+    assert payload["error_type"] == "telegram_transient"
+    assert payload["error_message"] == "Telegram API is temporarily unreachable"
+    assert "stored-secret" not in response.text
+    assert "127.0.0.1:1" not in response.text
+
+
+async def test_validate_bot_passes_configured_telegram_proxy(
+    session_factory,
+    monkeypatch,
+) -> None:
+    observed: dict[str, str | None] = {}
+
+    async def fake_fetch_bot_identity(
+        bot_token: str,
+        *,
+        telegram_api_proxy: str | None = None,
+    ) -> runtime_config.BotIdentity:
+        observed["token"] = bot_token
+        observed["proxy"] = telegram_api_proxy
+        return runtime_config.BotIdentity(
+            telegram_bot_id=7654321098,
+            telegram_username="summary_relay_bot",
+        )
+
+    monkeypatch.setattr(runtime_config, "fetch_bot_identity", fake_fetch_bot_identity)
+    bootstrap_config = _bootstrap_config()
+    app_config = AppConfig.from_bootstrap_runtime(
+        bootstrap_config,
+        env={"TELEGRAM_API_PROXY": "socks5://127.0.0.1:7890"},
+    )
+    secret_service = SecretService(bootstrap_config.settings_encryption_key)
+    async with session_scope(session_factory) as session:
+        bot = await create_bot_instance(
+            session,
+            secret_service=secret_service,
+            name="Main bot",
+            bot_token="123456:stored-secret",
+            owner_id=1001,
+            enabled=True,
+        )
+        bot_id = bot.id
+
+    response = await _request(
+        _web_app(session_factory, bootstrap_config, app_config=app_config),
+        "POST",
+        "/api/bot/validate",
+        json={"id": bot_id, "bot_token": None},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert observed == {
+        "token": "123456:stored-secret",
+        "proxy": "socks5://127.0.0.1:7890",
+    }
+    assert "stored-secret" not in response.text
+    assert "127.0.0.1:7890" not in response.text
 
 
 async def test_patch_bot_enabled_enforces_single_enabled_bot(session_factory) -> None:

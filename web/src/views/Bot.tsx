@@ -36,6 +36,7 @@ export default function BotConfig() {
   // Validation modal state
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState<string | null>(null);
+  const [validationSucceeded, setValidationSucceeded] = useState<boolean | null>(null);
   const [tempToken, setTempToken] = useState('');
   const [showValDialog, setShowValDialog] = useState(false);
 
@@ -149,14 +150,17 @@ export default function BotConfig() {
   const handleValidateConnection = async () => {
     setValidating(true);
     setValidationResult(null);
+    setValidationSucceeded(null);
     try {
       if (selectedBotId === null) return;
       const res = await api.validateBot({
         id: selectedBotId,
         bot_token: tempToken.trim() ? tempToken : null,
       });
+      setValidationSucceeded(res.success);
       setValidationResult(res.detail || '已成功建立 Bot 双向通讯。');
     } catch (err: any) {
+      setValidationSucceeded(false);
       setValidationResult('校验发生不可恢复的错误: ' + err.message);
     } finally {
       setValidating(false);
@@ -361,6 +365,7 @@ export default function BotConfig() {
                   onClick={() => {
                     setTempToken('');
                     setValidationResult(null);
+                    setValidationSucceeded(null);
                     setShowValDialog(true);
                   }}
                   className="w-full h-10 border border-indigo-200 hover:border-indigo-300 text-indigo-600 bg-indigo-50/30 hover:bg-indigo-50 active:scale-[0.98] text-[13px] font-bold rounded-lg flex items-center justify-center gap-2 transition-all cursor-pointer mt-3"
@@ -435,7 +440,7 @@ export default function BotConfig() {
 
               {validationResult && (
                 <div className={`p-4 rounded-lg text-xs leading-normal font-mono ${
-                  validationResult.includes('成功') || validationResult.includes('tested')
+                  validationSucceeded === true
                     ? 'bg-green-50 border border-green-200 text-green-700'
                     : 'bg-red-50 border border-red-200 text-red-700'
                 }`}>

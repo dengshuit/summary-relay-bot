@@ -72,6 +72,7 @@ Important optional variables:
 | `SCHEDULER_TIMEZONE` | `UTC` | Scheduler timezone. |
 | `SCHEDULER_MISFIRE_GRACE_SECONDS` | `300` | Scheduler misfire grace period. |
 | `SCHEDULER_COALESCE` | `true` | Coalesce missed scheduled runs after downtime. |
+| `TELEGRAM_API_PROXY` | empty | Optional outbound proxy for Telegram Bot API calls, such as `socks5://host.docker.internal:7890` or `http://proxy:8080`. |
 
 Do not commit real tokens, database passwords, encryption keys, administrator tokens, or API keys.
 
@@ -242,6 +243,8 @@ Secrets are replacement-only:
 4. Have the administrator send `/start` to the bot privately before expecting summary or relay notifications.
 5. Add the bot to groups that should be collected.
 6. If ordinary group messages are not received, review BotFather privacy mode and re-add the bot after changing privacy settings.
+
+If Bot validation fails in the WebUI, first verify that the running process or container can reach `https://api.telegram.org`. When Telegram requires a proxy from your deployment network, set `TELEGRAM_API_PROXY` and restart the service; the setting is used for Bot validation, polling, summary delivery, and private relay delivery.
 
 The bot is quiet in groups by design. Summaries and management responses are sent only in the administrator's private chat.
 

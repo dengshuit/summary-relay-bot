@@ -278,9 +278,10 @@ async def test_build_runtime_app_uses_database_token_and_owner_for_bot_and_handl
 
     observed: dict[str, object] = {}
 
-    def fake_create_bot(config):
+    def fake_create_bot(config, *, telegram_api_proxy=None):
         observed["bot_token"] = config.bot_token
         observed["owner_id_for_bot"] = config.owner_id
+        observed["telegram_api_proxy"] = telegram_api_proxy
         return FakeBot()
 
     def fake_register_routers(dispatcher, config, *, owner_id: int) -> None:
@@ -308,6 +309,7 @@ async def test_build_runtime_app_uses_database_token_and_owner_for_bot_and_handl
         assert observed == {
             "bot_token": "123456:AA-runtime-secret-token",
             "owner_id_for_bot": 3003,
+            "telegram_api_proxy": None,
             "owner_id_for_handlers": 3003,
             "polling_owner_id": 3003,
         }
@@ -319,6 +321,65 @@ async def test_build_runtime_app_uses_database_token_and_owner_for_bot_and_handl
             == "123456:AA-runtime-secret-token"
         )
         assert runtime_app.telegram_runtime.state_snapshot().status == TELEGRAM_RUNTIME_RUNNING
+    finally:
+        await runtime_app.telegram_runtime.stop()
+        await runtime_app.engine.dispose()
+
+
+async def test_build_runtime_app_passes_telegram_api_proxy_to_bot_factory(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    encryption_key = SecretService.generate_key()
+    service = SecretService(encryption_key)
+    database_url = await _create_sqlite_database(tmp_path / "enabled-runtime-proxy.db")
+    engine, factory = await _session_factory(database_url)
+    async with session_scope(factory) as session:
+        await create_bot_instance(
+            session,
+            secret_service=service,
+            name="Main bot",
+            bot_token="123456:AA-runtime-secret-token",
+            owner_id=3003,
+            enabled=True,
+        )
+    await engine.dispose()
+
+    observed: dict[str, object] = {}
+
+    def fake_create_bot(config, *, telegram_api_proxy=None):
+        observed["bot_token"] = config.bot_token
+        observed["telegram_api_proxy"] = telegram_api_proxy
+        return FakeBot()
+
+    def fake_register_routers(dispatcher, config, *, owner_id: int) -> None:
+        observed["owner_id_for_handlers"] = owner_id
+
+    async def fake_start_polling(resources, *, ready_event=None) -> None:
+        if ready_event is not None:
+            ready_event.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("summary_relay_bot.main.create_bot", fake_create_bot)
+    monkeypatch.setattr("summary_relay_bot.main.register_routers", fake_register_routers)
+    monkeypatch.setattr("summary_relay_bot.main.start_polling", fake_start_polling)
+
+    bootstrap_config = BootstrapConfig(
+        database_url=database_url,
+        settings_encryption_key=encryption_key,
+        webui_admin_token="admin-secret",
+    )
+    runtime_app = await build_runtime_app(
+        bootstrap_config,
+        env={"TELEGRAM_API_PROXY": "socks5://127.0.0.1:7890"},
+    )
+    try:
+        await runtime_app.telegram_runtime.start_from_db()
+        assert observed == {
+            "bot_token": "123456:AA-runtime-secret-token",
+            "telegram_api_proxy": "socks5://127.0.0.1:7890",
+            "owner_id_for_handlers": 3003,
+        }
     finally:
         await runtime_app.telegram_runtime.stop()
         await runtime_app.engine.dispose()

@@ -9,7 +9,12 @@ class ConfigError(ValueError):
     """Raised when required configuration is missing or invalid."""
 
 
-_SECRET_FIELD_NAMES = {"database_url", "settings_encryption_key", "webui_admin_token"}
+_SECRET_FIELD_NAMES = {
+    "database_url",
+    "settings_encryption_key",
+    "telegram_api_proxy",
+    "webui_admin_token",
+}
 _REQUIRED_BOOTSTRAP_ENV = ("DATABASE_URL", "SETTINGS_ENCRYPTION_KEY", "WEBUI_ADMIN_TOKEN")
 
 
@@ -41,6 +46,13 @@ def _require(env: Mapping[str, str], name: str) -> str:
     if value is None or value.strip() == "":
         raise ConfigError(f"{name} is required")
     return value.strip()
+
+
+def _optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
 
 
 def redact_secret(value: str | None) -> str | None:
@@ -81,6 +93,7 @@ def _app_runtime_options(env: Mapping[str, str]) -> dict[str, object]:
             minimum=0,
         ),
         "scheduler_coalesce": _parse_bool(env.get("SCHEDULER_COALESCE"), default=True),
+        "telegram_api_proxy": _optional_text(env.get("TELEGRAM_API_PROXY")),
     }
 
 
@@ -132,6 +145,7 @@ class AppConfig:
     scheduler_timezone: str = "UTC"
     scheduler_misfire_grace_seconds: int = 300
     scheduler_coalesce: bool = True
+    telegram_api_proxy: str | None = None
 
     @classmethod
     def from_bootstrap_runtime(

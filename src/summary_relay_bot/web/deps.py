@@ -5,7 +5,7 @@ from typing import cast
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from summary_relay_bot.config import BootstrapConfig
+from summary_relay_bot.config import AppConfig, BootstrapConfig
 from summary_relay_bot.services.secrets import SecretService
 from summary_relay_bot.services.telegram_runtime import TelegramRuntimeManager
 
@@ -22,6 +22,10 @@ def _state_value(request: Request, name: str) -> object:
 
 def get_bootstrap_config(request: Request) -> BootstrapConfig:
     return cast(BootstrapConfig, _state_value(request, "bootstrap_config"))
+
+
+def get_app_config(request: Request) -> AppConfig:
+    return cast(AppConfig, _state_value(request, "app_config"))
 
 
 def get_session_factory(request: Request) -> async_sessionmaker[AsyncSession]:

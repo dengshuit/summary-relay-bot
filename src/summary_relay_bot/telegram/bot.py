@@ -6,6 +6,7 @@ from typing import Protocol
 
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 
 from summary_relay_bot.config import AppConfig
 
@@ -30,9 +31,16 @@ class ActiveWebhookError(RuntimeError):
     pass
 
 
-def create_bot(config: BotTokenConfig) -> Bot:
+def create_bot(
+    config: BotTokenConfig,
+    *,
+    telegram_api_proxy: str | None = None,
+) -> Bot:
+    proxy = telegram_api_proxy or getattr(config, "telegram_api_proxy", None)
+    session = AiohttpSession(proxy=proxy) if proxy else None
     return Bot(
         token=config.bot_token,
+        session=session,
         default=DefaultBotProperties(parse_mode=None),
     )
 

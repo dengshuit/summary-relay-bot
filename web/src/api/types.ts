@@ -16,6 +16,17 @@ export interface BotInstance {
   secret: SecretState;
 }
 
+export interface BotValidationResponse {
+  success: boolean;
+  detail: string;
+  status: 'unvalidated' | 'valid' | 'invalid' | 'error';
+  last_validated_at: string;
+  bot_id: number | null;
+  username: string | null;
+  error_type: string | null;
+  error_message: string | null;
+}
+
 export interface LLMProvider {
   id: number;
   name: string;

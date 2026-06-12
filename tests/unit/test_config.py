@@ -55,6 +55,7 @@ def test_process_config_can_be_built_without_legacy_business_env() -> None:
     assert config.scheduler_timezone == "UTC"
     assert config.scheduler_misfire_grace_seconds == 300
     assert config.scheduler_coalesce is True
+    assert config.telegram_api_proxy is None
     assert "db-secret" not in rendered
     assert "<redacted>" in str(safe["database_url"])
 
@@ -71,6 +72,7 @@ def test_process_config_keeps_process_env_options_configurable() -> None:
             "SCHEDULER_TIMEZONE": "Asia/Shanghai",
             "SCHEDULER_MISFIRE_GRACE_SECONDS": "60",
             "SCHEDULER_COALESCE": "false",
+            "TELEGRAM_API_PROXY": " socks5://127.0.0.1:7890 ",
         },
     )
 
@@ -80,6 +82,8 @@ def test_process_config_keeps_process_env_options_configurable() -> None:
     assert config.scheduler_timezone == "Asia/Shanghai"
     assert config.scheduler_misfire_grace_seconds == 60
     assert config.scheduler_coalesce is False
+    assert config.telegram_api_proxy == "socks5://127.0.0.1:7890"
+    assert config.safe_dict()["telegram_api_proxy"] == "<redacted>"
 
 
 def test_process_config_rejects_invalid_process_env() -> None:

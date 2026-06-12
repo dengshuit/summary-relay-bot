@@ -4,7 +4,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from aiogram.exceptions import TelegramAPIError, TelegramUnauthorizedError
+from aiohttp_socks import ProxyConnectionError, ProxyError, ProxyTimeoutError
+from aiogram.exceptions import (
+    TelegramAPIError,
+    TelegramNetworkError,
+    TelegramServerError,
+    TelegramUnauthorizedError,
+)
 from aiogram.utils.token import TokenValidationError
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -397,8 +403,15 @@ async def mark_bot_restart_flags(
     await session.flush()
 
 
-async def fetch_bot_identity(bot_token: str) -> BotIdentity:
-    bot = create_bot(_BotTokenConfig(bot_token=bot_token))
+async def fetch_bot_identity(
+    bot_token: str,
+    *,
+    telegram_api_proxy: str | None = None,
+) -> BotIdentity:
+    bot = create_bot(
+        _BotTokenConfig(bot_token=bot_token),
+        telegram_api_proxy=telegram_api_proxy,
+    )
     try:
         user = await bot.get_me()
         return BotIdentity(
@@ -415,6 +428,7 @@ async def validate_bot_instance(
     secret_service: SecretService,
     bot_instance_id: int,
     bot_token: str | None | object = _UNSET,
+    telegram_api_proxy: str | None = None,
 ) -> BotValidationResult:
     bot_instance = await get_bot_instance(session, bot_instance_id)
     normalized_token: str | None = None
@@ -429,7 +443,10 @@ async def validate_bot_instance(
             if should_persist_result
             else normalized_token
         )
-        identity = await fetch_bot_identity(token_to_validate)
+        identity = await fetch_bot_identity(
+            token_to_validate,
+            telegram_api_proxy=telegram_api_proxy,
+        )
     except SecretError:
         result = BotValidationResult(
             status="error",
@@ -447,6 +464,21 @@ async def validate_bot_instance(
             telegram_username=None,
             error_type="invalid_token",
             error_message="bot token is invalid",
+        )
+    except (
+        ProxyConnectionError,
+        ProxyError,
+        ProxyTimeoutError,
+        TelegramNetworkError,
+        TelegramServerError,
+    ):
+        result = BotValidationResult(
+            status="error",
+            last_validated_at=now,
+            telegram_bot_id=None,
+            telegram_username=None,
+            error_type="telegram_transient",
+            error_message="Telegram API is temporarily unreachable",
         )
     except TelegramAPIError:
         result = BotValidationResult(

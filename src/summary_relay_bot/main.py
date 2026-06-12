@@ -134,7 +134,7 @@ async def build_app(
     if bot is None:
         if bot_runtime_config is None:
             raise ConfigError("bot runtime config is required to create bot")
-        bot = create_bot(bot_runtime_config)
+        bot = create_bot(bot_runtime_config, telegram_api_proxy=config.telegram_api_proxy)
     dispatcher = Dispatcher()
     engine = engine or create_engine(config.database_url)
     session_factory = session_factory or create_session_factory(engine)
@@ -176,6 +176,10 @@ async def build_runtime_app(
     reload_gate = SummaryReloadGate()
     engine = create_engine(bootstrap_config.database_url)
     session_factory = create_session_factory(engine)
+    app_config = AppConfig.from_bootstrap_runtime(
+        bootstrap_config,
+        env=env,
+    )
 
     try:
         telegram_startup = await load_telegram_startup_state(
@@ -194,6 +198,7 @@ async def build_runtime_app(
         )
         web_app = create_web_app(
             bootstrap_config=bootstrap_config,
+            app_config=app_config,
             session_factory=session_factory,
             secret_service=secret_service,
             telegram_startup=telegram_startup.safe_dict(),
