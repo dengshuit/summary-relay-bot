@@ -472,3 +472,36 @@ Unified Semi Select controls and dropdown option styling for settings pages; val
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: Bot runtime hot reload
+
+**Date**: 2026-06-12
+**Task**: Bot runtime hot reload
+**Branch**: `master`
+
+### Summary
+
+Implemented in-process Telegram runtime hot reload, runtime_busy conflict handling for active Bot-delivering summaries, dynamic dashboard runtime state, and targeted backend tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6bfa0b7` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
