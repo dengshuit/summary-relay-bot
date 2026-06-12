@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 import logging
@@ -19,7 +20,10 @@ _ALLOWED_FIELDS = ("message_type", "summary_content")
 _OPENAI_PROVIDER_TYPES = frozenset({"openai", "openai_compatible"})
 _OPENAI_BASE_URL = "https://api.openai.com/v1"
 _DEFAULT_MAX_OUTPUT_TOKENS = 4000
-_DEFAULT_MAX_RETRIES = 2
+_LLM_NON_STREAM_TIMEOUT_SECONDS = 5 * 60
+_LLM_STREAM_FIRST_BYTE_TIMEOUT_SECONDS = 5 * 60
+_LLM_STREAM_READ_TIMEOUT_SECONDS = 10 * 60
+_DEFAULT_MAX_RETRIES = 0
 
 
 class SummaryLLMError(RuntimeError):
@@ -68,24 +72,25 @@ class AnthropicSummaryProvider:
 
     async def summarize(self, prompt: str) -> str:
         try:
-            response = await self.client.with_options(
-                timeout=self.settings.timeout_seconds,
-                max_retries=self.settings.max_retries,
-            ).messages.create(
-                model=self.settings.model,
-                max_tokens=self.settings.max_output_tokens,
-                thinking={"type": "adaptive"},
-                output_config={"effort": "medium"},
-                system=[
-                    {
-                        "type": "text",
-                        "text": self.settings.system_prompt,
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
-                messages=[{"role": "user", "content": prompt}],
-            )
-        except anthropic.APITimeoutError as exc:
+            async with asyncio.timeout(self.settings.timeout_seconds):
+                response = await self.client.with_options(
+                    timeout=self.settings.timeout_seconds,
+                    max_retries=self.settings.max_retries,
+                ).messages.create(
+                    model=self.settings.model,
+                    max_tokens=self.settings.max_output_tokens,
+                    thinking={"type": "adaptive"},
+                    output_config={"effort": "medium"},
+                    system=[
+                        {
+                            "type": "text",
+                            "text": self.settings.system_prompt,
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                    messages=[{"role": "user", "content": prompt}],
+                )
+        except (TimeoutError, anthropic.APITimeoutError) as exc:
             raise SummaryLLMError("llm_timeout") from exc
         except anthropic.RateLimitError as exc:
             raise SummaryLLMError("llm_rate_limited") from exc
@@ -136,18 +141,21 @@ class OpenAICompatibleSummaryProvider:
         last_error: SummaryLLMError | None = None
         for attempt in range(self.settings.max_retries + 1):
             try:
-                response = await client.post(
-                    endpoint,
-                    headers=headers,
-                    json=payload,
-                    timeout=self.settings.timeout_seconds,
-                )
+                async with asyncio.timeout(self.settings.timeout_seconds):
+                    response = await client.post(
+                        endpoint,
+                        headers=headers,
+                        json=payload,
+                        timeout=self.settings.timeout_seconds,
+                    )
                 response.raise_for_status()
                 try:
                     data = response.json()
                 except ValueError as exc:
                     raise SummaryLLMError("llm_api_error") from exc
                 return _extract_openai_summary(data)
+            except TimeoutError as exc:
+                raise SummaryLLMError("llm_timeout") from exc
             except httpx.TimeoutException as exc:
                 raise SummaryLLMError("llm_timeout") from exc
             except httpx.HTTPStatusError as exc:
@@ -236,12 +244,13 @@ def assert_summary_payload_is_whitelisted(payload: SummaryLLMRequest) -> None:
 def _settings_from_config(config: SummaryProfileRuntimeConfig) -> SummaryLLMSettings:
     provider = getattr(config, "llm_provider", None)
     if provider is not None:
+        # Provider timeout/retry columns remain for API compatibility; runtime policy is fixed here.
         return SummaryLLMSettings(
             provider_type=_normalize_provider_type(provider.provider_type),
             api_key=provider.api_key,
             model=config.model,
-            timeout_seconds=provider.timeout_seconds,
-            max_retries=provider.max_retries,
+            timeout_seconds=_LLM_NON_STREAM_TIMEOUT_SECONDS,
+            max_retries=_DEFAULT_MAX_RETRIES,
             base_url=provider.base_url,
             prompt_version=config.prompt_version,
             system_prompt=config.system_prompt or SUMMARY_SYSTEM_PROMPT,

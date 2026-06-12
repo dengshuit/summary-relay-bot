@@ -64,8 +64,6 @@ export default function Engine() {
   const [provType, setProvType] = useState<'openai' | 'anthropic' | 'openai_compatible'>('openai');
   const [provBaseUrl, setProvBaseUrl] = useState('');
   const [provApiKey, setProvApiKey] = useState('');
-  const [provTimeout, setProvTimeout] = useState(30);
-  const [provRetries, setProvRetries] = useState(3);
   const [provEnabled, setProvEnabled] = useState(true);
 
   // Upstream models list, tags list, and manual inputs
@@ -245,8 +243,6 @@ export default function Engine() {
     const defaults = TYPE_PRESETS['openai'];
     setProvSupportedModels(defaults);
 
-    setProvTimeout(30);
-    setProvRetries(3);
     setProvEnabled(true);
     setProviderModal(true);
   };
@@ -261,8 +257,6 @@ export default function Engine() {
     const list = p.models && p.models.length > 0 ? p.models : (TYPE_PRESETS[p.provider_type] || TYPE_PRESETS.openai_compatible);
     setProvSupportedModels(list);
 
-    setProvTimeout(p.timeout_seconds);
-    setProvRetries(p.max_retries);
     setProvEnabled(p.enabled);
     setProviderModal(true);
   };
@@ -280,7 +274,7 @@ export default function Engine() {
     e.preventDefault();
     if (!provName.trim()) return;
     if (provSupportedModels.length === 0) {
-      alert('请确保支持的模型列表不为空！');
+      alert('请确保模型列表不为空！');
       return;
     }
 
@@ -291,8 +285,6 @@ export default function Engine() {
         provider_type: provType,
         base_url: provBaseUrl || null,
         default_model: provSupportedModels[0] || '',
-        timeout_seconds: provTimeout,
-        max_retries: provRetries,
         enabled: provEnabled,
         models: provSupportedModels
       };
@@ -306,7 +298,7 @@ export default function Engine() {
       setProviderModal(false);
       await fetchEngineData();
     } catch (err: any) {
-      alert('保存 LLM 渠道失败: ' + err.message);
+      alert('保存渠道失败: ' + err.message);
     } finally {
       setSaving(false);
     }
@@ -680,9 +672,8 @@ export default function Engine() {
                 <div className="px-6 py-5 border-b border-gray-100 bg-slate-50/50 flex justify-between items-center shrink-0">
                   <div>
                     <h3 className="font-bold text-gray-900 text-sm">
-                      {editingProviderId ? '编辑' : '新增'} LLM Provider
+                      {editingProviderId ? '编辑渠道' : '新增渠道'}
                     </h3>
-                    <p className="text-[11px] text-gray-400 mt-1">请填写底层人工智能推理中转站连接信息</p>
                   </div>
                   <button type="button" onClick={() => setProviderModal(false)} className="text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer">
                     <X className="w-4 h-4" />
@@ -692,20 +683,36 @@ export default function Engine() {
                 <div className="flex-1 overflow-y-auto p-6 space-y-5">
                   {/* Provider Name */}
                   <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-700 block">连接名称 *</label>
+                    <label className="text-xs font-semibold text-gray-700 block">名称</label>
                     <input
                       type="text"
                       required
                       value={provName}
                       onChange={(e) => setProvName(e.target.value)}
-                      placeholder="例如: DeepSeek 官方通道"
+                      placeholder="例如: DeepSeek 官方渠道"
                       className="w-full px-3 py-2 rounded-lg border border-[#e4e6ec] text-xs font-medium"
                     />
                   </div>
 
+                  {/* Enable Switch */}
+                  <div className="flex items-center justify-between pt-2">
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-semibold text-gray-800">是否启用</span>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={provEnabled}
+                        onChange={(e) => setProvEnabled(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                    </label>
+                  </div>
+
                   {/* Type select */}
                   <div className="space-y-1 z-30">
-                    <label className="text-xs font-semibold text-gray-700 block">连接厂商类型 *</label>
+                    <label className="text-xs font-semibold text-gray-700 block">接口类型</label>
                     <CustomSelect
                       options={[
                         { value: "openai", label: "OpenAI" },
@@ -717,10 +724,34 @@ export default function Engine() {
                     />
                   </div>
 
+                  {/* Base url */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-700 block">Base URL</label>
+                    <input
+                      type="text"
+                      value={provBaseUrl}
+                      onChange={(e) => setProvBaseUrl(e.target.value)}
+                      placeholder="OpenAI 官方接口可留空，兼容接口必填"
+                      className="w-full px-3 py-2 rounded-lg border border-[#e4e6ec] text-xs font-mono"
+                    />
+                  </div>
+
+                  {/* API Key */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-700 block">API KEY</label>
+                    <input
+                      type="password"
+                      value={provApiKey}
+                      onChange={(e) => setProvApiKey(e.target.value)}
+                      placeholder={editingProviderId ? '不修改请留空' : '输入渠道 API KEY'}
+                      className="w-full px-3 py-2 rounded-lg border border-[#e4e6ec] text-xs font-mono"
+                    />
+                  </div>
+
                   {/* Supports model list / tags list */}
                   <div className="space-y-2.5">
                     <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-gray-700 block">支持的模型列表 *</label>
+                      <label className="text-xs font-semibold text-gray-700 block">模型列表</label>
                       <button
                         type="button"
                         onClick={handleTriggerFetchUpstream}
@@ -780,70 +811,6 @@ export default function Engine() {
                         ))
                       )}
                     </div>
-                  </div>
-
-                  {/* Base url */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-700 block">基础 API Base URL</label>
-                    <input
-                      type="text"
-                      value={provBaseUrl}
-                      onChange={(e) => setProvBaseUrl(e.target.value)}
-                      placeholder="不写则直连官方, 兼容API必须填入"
-                      className="w-full px-3 py-2 rounded-lg border border-[#e4e6ec] text-xs font-mono"
-                    />
-                  </div>
-
-                  {/* API Key */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-700 block">API Key 密钥</label>
-                    <input
-                      type="password"
-                      value={provApiKey}
-                      onChange={(e) => setProvApiKey(e.target.value)}
-                      placeholder={editingProviderId ? '默认保持安全存储，不修改请留空' : '输入驱动 API Key 连接凭证'}
-                      className="w-full px-3 py-2 rounded-lg border border-[#e4e6ec] text-xs font-mono"
-                    />
-                  </div>
-
-                  {/* Retries and limits */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-gray-700 block">最大连接超时 (S)</label>
-                      <input
-                        type="number"
-                        required
-                        value={provTimeout}
-                        onChange={(e) => setProvTimeout(parseInt(e.target.value) || 30)}
-                        className="w-full px-3 py-2 rounded-lg border border-[#e4e6ec] text-xs font-mono"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-gray-700 block">重试上限</label>
-                      <input
-                        type="number"
-                        required
-                        value={provRetries}
-                        onChange={(e) => setProvRetries(parseInt(e.target.value) || 3)}
-                        className="w-full px-3 py-2 rounded-lg border border-[#e4e6ec] text-xs font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Enable Switch */}
-                  <div className="flex items-center justify-between pt-2">
-                    <div className="space-y-0.5">
-                      <span className="text-xs font-semibold text-gray-800">激活当前 LLM 运行桥接</span>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={provEnabled}
-                        onChange={(e) => setProvEnabled(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-                    </label>
                   </div>
                 </div>
 

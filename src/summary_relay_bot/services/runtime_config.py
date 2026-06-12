@@ -58,6 +58,8 @@ class SummaryProfileInUseError(RuntimeConfigError):
 
 SUPPORTED_LLM_PROVIDER_TYPES = frozenset({"anthropic", "openai", "openai_compatible"})
 VALIDATION_STATUSES = frozenset({"unvalidated", "valid", "invalid", "error"})
+DEFAULT_LLM_PROVIDER_TIMEOUT_SECONDS = 300
+DEFAULT_LLM_PROVIDER_MAX_RETRIES = 0
 _UNSET = object()
 
 
@@ -835,8 +837,8 @@ async def create_llm_provider(
     default_model: str,
     models: list[str] | None = None,
     base_url: str | None = None,
-    timeout_seconds: int = 30,
-    max_retries: int = 2,
+    timeout_seconds: int = DEFAULT_LLM_PROVIDER_TIMEOUT_SECONDS,
+    max_retries: int = DEFAULT_LLM_PROVIDER_MAX_RETRIES,
     enabled: bool = True,
     actor: str = "system",
 ) -> LLMProvider:

@@ -128,7 +128,7 @@ async def test_summarize_uses_runtime_profile_model_timeout_prompt_version_and_c
     )
 
     assert summary == "- concise summary"
-    assert fake_client.options == {"timeout": runtime_profile.llm_provider.timeout_seconds, "max_retries": 1}
+    assert fake_client.options == {"timeout": 300, "max_retries": 0}
     [call] = fake_client.messages.calls
     assert call["model"] == runtime_profile.model
     assert call["thinking"] == {"type": "adaptive"}
@@ -182,7 +182,7 @@ async def test_openai_compatible_uses_runtime_provider_base_url_and_chat_complet
     assert summary == "compatible summary"
     [call] = fake_http.calls
     assert call["url"] == "https://llm.example.test/v1/chat/completions"
-    assert call["timeout"] == 17
+    assert call["timeout"] == 300
     assert call["headers"] == {
         "Authorization": "Bearer runtime-llm-key",
         "Content-Type": "application/json",
@@ -223,7 +223,7 @@ async def test_openai_compatible_requires_runtime_base_url() -> None:
     assert fake_http.calls == []
 
 
-async def test_openai_compatible_retries_retryable_status_and_maps_rate_limit() -> None:
+async def test_openai_compatible_does_not_retry_retryable_status_and_maps_rate_limit() -> None:
     fake_retry_http = FakeOpenAIHTTPClient(
         [
             openai_response(503, payload={"error": {"message": "try again"}}),
@@ -232,13 +232,13 @@ async def test_openai_compatible_retries_retryable_status_and_maps_rate_limit() 
     )
     client = PrivacyAwareSummaryClient(runtime_summary_profile(), http_client=fake_retry_http)
 
-    summary = await client.summarize_group_messages(
-        group_title="Group",
-        group_messages=[group_message()],
-    )
+    with pytest.raises(SummaryLLMError, match="llm_api_error:503"):
+        await client.summarize_group_messages(
+            group_title="Group",
+            group_messages=[group_message()],
+        )
 
-    assert summary == "after retry"
-    assert len(fake_retry_http.calls) == 2
+    assert len(fake_retry_http.calls) == 1
 
     fake_rate_limit_http = FakeOpenAIHTTPClient([openai_response(429, payload={"error": {"message": "limited"}})])
     client = PrivacyAwareSummaryClient(runtime_summary_profile(), http_client=fake_rate_limit_http)

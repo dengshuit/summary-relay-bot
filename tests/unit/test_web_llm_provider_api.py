@@ -193,8 +193,6 @@ async def test_post_llm_provider_validates_parameters_and_redacts_audit(session_
             "api_key": "llm-created-secret",
             "default_model": "claude-default",
             "models": ["claude-default", "claude-3-5-sonnet-latest"],
-            "timeout_seconds": 30,
-            "max_retries": 2,
             "enabled": True,
         },
     )
@@ -205,7 +203,14 @@ async def test_post_llm_provider_validates_parameters_and_redacts_audit(session_
     assert valid.status_code == 200
     assert valid.json()["secret"]["configured"] is True
     assert valid.json()["models"] == ["claude-default", "claude-3-5-sonnet-latest"]
+    assert valid.json()["timeout_seconds"] == 300
+    assert valid.json()["max_retries"] == 0
     assert "llm-created-secret" not in valid.text
+    async with session_factory() as session:
+        provider = await session.get(LLMProvider, valid.json()["id"])
+        assert provider is not None
+        assert provider.timeout_seconds == 300
+        assert provider.max_retries == 0
     async with session_factory() as session:
         audit_logs = (await session.scalars(select(AuditLog))).all()
     assert "create_llm_provider" in [log.action for log in audit_logs]

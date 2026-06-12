@@ -5,6 +5,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from summary_relay_bot.services.runtime_config import (
+    DEFAULT_LLM_PROVIDER_MAX_RETRIES,
+    DEFAULT_LLM_PROVIDER_TIMEOUT_SECONDS,
+)
+
 
 class SecretStateSchema(BaseModel):
     configured: bool
@@ -86,8 +91,8 @@ class LLMProviderCreateRequest(BaseModel):
     api_key: str
     default_model: str
     models: list[str] | None = None
-    timeout_seconds: int = 30
-    max_retries: int = 2
+    timeout_seconds: int = DEFAULT_LLM_PROVIDER_TIMEOUT_SECONDS
+    max_retries: int = DEFAULT_LLM_PROVIDER_MAX_RETRIES
     enabled: bool = True
 
 
