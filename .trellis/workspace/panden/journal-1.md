@@ -56,7 +56,9 @@ Added bootstrap plus database runtime bot startup path, no-enabled-bot polling s
 
 ### Main Changes
 
-(Add details)
+- Rendered the single-instance Bot setup form directly when no Bot exists, with a compact unconfigured notice instead of the first-Bot modal.
+- Replaced browser save alerts with inline success, failure, and no-change notices.
+- Added automatic saved-token validation after successful Bot create/update.
 
 ### Git Commits
 
@@ -66,7 +68,9 @@ Added bootstrap plus database runtime bot startup path, no-enabled-bot polling s
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `npm run lint`
+- [OK] `npm run build`
+- [OK] `git diff --check -- web/src/views/Bot.tsx`
 
 ### Status
 
@@ -526,6 +530,40 @@ Aligned backend management APIs with the rewritten WebUI contract, added summari
 | Hash | Message |
 |------|---------|
 | `42e2295` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 17: Improve Bot Config Save Flow
+
+**Date**: 2026-06-12
+**Task**: Improve Bot Config Save Flow
+**Branch**: `master`
+
+### Summary
+
+Updated the Bot configuration page to use inline save notices, show the single-instance setup form directly, and validate saved Bot tokens after save.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e454d96` | (see git log) |
+| `240eba1` | (see git log) |
 
 ### Testing
 
