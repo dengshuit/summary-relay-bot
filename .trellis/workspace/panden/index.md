@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 17
+- **Total Sessions**: 18
 - **Last Active**: 2026-06-12
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~574 | Active |
+| `journal-1.md` | ~612 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 18 | 2026-06-12 | LLM Provider Channel Configuration | `a2ad191`, `090098f` | `master` |
 | 17 | 2026-06-12 | Improve Bot Config Save Flow | `e454d96`, `240eba1` | `master` |
 | 16 | 2026-06-12 | WebUI API contract alignment | `42e2295` | `master` |
 | 15 | 2026-06-12 | Bot runtime hot reload | `6bfa0b7` | `master` |

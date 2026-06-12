@@ -576,3 +576,37 @@ Updated the Bot configuration page to use inline save notices, show the single-i
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: LLM Provider Channel Configuration
+
+**Date**: 2026-06-12
+**Task**: LLM Provider Channel Configuration
+**Branch**: `master`
+
+### Summary
+
+Simplified the LLM provider channel drawer, required explicit model configuration, and fixed runtime timeout/retry defaults.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a2ad191` | (see git log) |
+| `090098f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
