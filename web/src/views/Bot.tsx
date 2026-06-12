@@ -2,23 +2,19 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { BotInstance, DashboardData } from '../api/types';
 import {
-  Bot,
   RefreshCw,
   Check,
   X,
-  ShieldAlert,
-  Plus,
-  Eye,
-  EyeOff,
-  User,
-  Binary,
-  Key,
   AlertCircle,
   Zap,
-  HelpCircle,
-  ArrowRight
+  HelpCircle
 } from 'lucide-react';
-import CustomSelect from '../components/CustomSelect';
+
+type SaveNotice = {
+  kind: 'success' | 'error' | 'info';
+  title: string;
+  detail: string;
+};
 
 export default function BotConfig() {
   const [bots, setBots] = useState<BotInstance[]>([]);
@@ -26,6 +22,7 @@ export default function BotConfig() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<DashboardData['telegram_startup'] | null>(null);
+  const [saveNotice, setSaveNotice] = useState<SaveNotice | null>(null);
 
   // Edit fields
   const [name, setName] = useState('');
@@ -40,13 +37,6 @@ export default function BotConfig() {
   const [validationSucceeded, setValidationSucceeded] = useState<boolean | null>(null);
   const [tempToken, setTempToken] = useState('');
   const [showValDialog, setShowValDialog] = useState(false);
-
-  // Add Bot modal state
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newOwnerId, setNewOwnerId] = useState('');
-  const [newBotToken, setNewBotToken] = useState('');
-  const [newEnabled, setNewEnabled] = useState(false);
 
   const fetchBots = async (selectId?: number | string) => {
     setLoading(true);
@@ -68,6 +58,13 @@ export default function BotConfig() {
     }
   };
 
+  const resetBotFields = () => {
+    setName('');
+    setOwnerId('');
+    setEnabled(false);
+    setBotToken('');
+  };
+
   const loadBotFields = (id: number | null, list: BotInstance[]) => {
     const current = list.find(b => b.id === id);
     if (current) {
@@ -75,6 +72,8 @@ export default function BotConfig() {
       setOwnerId(''); // always blank for update (replacement-only)
       setEnabled(current.enabled);
       setBotToken(''); // replacement-only
+    } else {
+      resetBotFields();
     }
   };
 
@@ -89,6 +88,8 @@ export default function BotConfig() {
   };
 
   const selectedBot = bots.find(b => b.id === selectedBotId);
+  const isCreateMode = bots.length === 0 || selectedBotId === null || selectedBot === undefined;
+  const isUnconfigured = bots.length === 0;
   const runtimeRunning = runtimeStatus?.status === 'running';
   const runtimeLabel = runtimeStatus
     ? runtimeRunning
@@ -99,14 +100,99 @@ export default function BotConfig() {
           ? '未启用'
           : runtimeStatus.status
     : '未知';
+  const saveNoticeStyle = saveNotice?.kind === 'success'
+    ? {
+        container: 'bg-emerald-50 border-emerald-200',
+        icon: 'text-emerald-600',
+        title: 'text-emerald-900',
+        detail: 'text-emerald-700',
+      }
+    : saveNotice?.kind === 'error'
+      ? {
+          container: 'bg-rose-50 border-rose-200',
+          icon: 'text-rose-600',
+          title: 'text-rose-900',
+          detail: 'text-rose-700',
+        }
+      : {
+          container: 'bg-slate-50 border-slate-200',
+          icon: 'text-slate-500',
+          title: 'text-slate-900',
+          detail: 'text-slate-600',
+        };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedBotId) return;
+    setSaveNotice(null);
+
+    if (isCreateMode) {
+      if (!name.trim() || !ownerId.trim() || !botToken.trim()) {
+        setSaveNotice({
+          kind: 'error',
+          title: '保存失败',
+          detail: '请填入 Bot 别名、所有者 Telegram ID 和 Bot Token 后再保存。',
+        });
+        return;
+      }
+
+      setSaving(true);
+      try {
+        const newBot = await api.createBot({
+          name: name.trim(),
+          owner_id: ownerId.trim(),
+          enabled,
+          bot_token: botToken.trim()
+        });
+        setBotToken('');
+        setOwnerId('');
+        await fetchBots(newBot.id);
+        setSaveNotice({
+          kind: 'success',
+          title: '保存成功',
+          detail: 'Bot 配置已创建。页面已刷新脱敏后的配置状态。',
+        });
+      } catch (err: any) {
+        setSaveNotice({
+          kind: 'error',
+          title: '保存失败',
+          detail: err.message || '创建 Bot 配置失败。',
+        });
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    if (!selectedBot) return;
+
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setSaveNotice({
+        kind: 'error',
+        title: '保存失败',
+        detail: 'Bot 别名不能为空。',
+      });
+      return;
+    }
+
+    const updatePayload: any = { id: selectedBotId };
+    if (trimmedName !== selectedBot.name) updatePayload.name = trimmedName;
+    if (ownerId.trim() !== '') updatePayload.owner_id = ownerId.trim();
+    if (enabled !== selectedBot.enabled) updatePayload.enabled = enabled;
+    if (botToken.trim() !== '') updatePayload.bot_token = botToken.trim();
+
+    if (Object.keys(updatePayload).length === 1) {
+      setSaveNotice({
+        kind: 'info',
+        title: '无可提交变更',
+        detail: '当前表单内容与已保存配置一致，未发起保存请求。',
+      });
+      return;
+    }
 
     // If enabling this bot, and there's another enabled bot
     const otherEnabled = bots.some(b => b.enabled && b.id !== selectedBotId);
-    if (enabled && otherEnabled) {
+    if (updatePayload.enabled === true && otherEnabled) {
       const confirmSwitch = window.confirm(
         '当前系统只允许同时启用一个 Bot 实例。启用此 Bot 会自动禁用其他所有实例，并触发 Bot polling 运行时重新加载。是否确认切换？'
       );
@@ -115,48 +201,21 @@ export default function BotConfig() {
 
     setSaving(true);
     try {
-      const updatePayload: any = { id: selectedBotId };
-      if (name !== selectedBot?.name) updatePayload.name = name;
-      if (ownerId.trim() !== '') updatePayload.owner_id = ownerId;
-      if (enabled !== selectedBot?.enabled) updatePayload.enabled = enabled;
-      if (botToken.trim() !== '') updatePayload.bot_token = botToken;
-
       await api.updateBot(updatePayload);
-      alert('Bot 配置项已写入数据库中！');
       setBotToken('');
       setOwnerId('');
       await fetchBots(selectedBotId);
-    } catch (err: any) {
-      alert('保存失败: ' + err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleCreateBot = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newName || !newOwnerId || !newBotToken) {
-      alert('请填入所有必需信息以创建 Bot。');
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const newBot = await api.createBot({
-        name: newName,
-        owner_id: newOwnerId,
-        enabled: newEnabled,
-        bot_token: newBotToken
+      setSaveNotice({
+        kind: 'success',
+        title: '保存成功',
+        detail: 'Bot 配置已更新。页面已刷新脱敏后的配置状态。',
       });
-      setShowAddModal(false);
-      // clean inputs
-      setNewName('');
-      setNewOwnerId('');
-      setNewBotToken('');
-      setNewEnabled(false);
-      await fetchBots(String(newBot.id));
     } catch (err: any) {
-      alert('创建失败: ' + err.message);
+      setSaveNotice({
+        kind: 'error',
+        title: '保存失败',
+        detail: err.message || '更新 Bot 配置失败。',
+      });
     } finally {
       setSaving(false);
     }
@@ -220,28 +279,46 @@ export default function BotConfig() {
         </div>
       </div>
 
-      {/* If absolutely empty */}
-      {bots.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-8 text-center flex flex-col items-center justify-center min-h-[300px] space-y-4">
-          <Bot className="w-12 h-12 text-slate-300" />
-          <div className="space-y-1">
-            <h3 className="font-semibold text-gray-800 text-[16px]">数据库中没有可用的 Bot 控制实例</h3>
-            <p className="text-[15px] leading-relaxed text-gray-500 max-w-sm mx-auto">由于系统首次启动或没有注入 Bot，您需要在此配置拉取群消息并生成摘要的专属 Telegram Bot。</p>
+      {errorMsg && (
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-rose-600 mt-0.5 shrink-0" />
+          <div>
+            <h4 className="text-xs font-semibold text-rose-900 uppercase tracking-widest">Bot 配置读取失败</h4>
+            <p className="text-xs text-rose-700 mt-0.5">{errorMsg}</p>
           </div>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[14px] font-semibold rounded-lg shadow-sm cursor-pointer h-10"
-          >
-            立即新增首个 Bot 实例
-          </button>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      )}
+
+      {isUnconfigured && !errorMsg && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+          <div>
+            <h4 className="text-xs font-semibold text-amber-900 uppercase tracking-widest">尚未配置 Bot</h4>
+            <p className="text-xs text-amber-700 mt-0.5">当前为单 Bot 实例模式，请在下方填写配置并保存。保存成功后页面会回显脱敏后的配置数据。</p>
+          </div>
+        </div>
+      )}
+
+      {saveNotice && (
+        <div className={`${saveNoticeStyle.container} border rounded-xl p-4 flex items-start gap-3`}>
+          {saveNotice.kind === 'success' ? (
+            <Check className={`w-5 h-5 ${saveNoticeStyle.icon} mt-0.5 shrink-0`} />
+          ) : (
+            <AlertCircle className={`w-5 h-5 ${saveNoticeStyle.icon} mt-0.5 shrink-0`} />
+          )}
+          <div>
+            <h4 className={`text-xs font-semibold ${saveNoticeStyle.title} uppercase tracking-widest`}>{saveNotice.title}</h4>
+            <p className={`text-xs ${saveNoticeStyle.detail} mt-0.5`}>{saveNotice.detail}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Main Info Fields Form */}
           <div className="lg:col-span-8 bg-white border border-gray-200 rounded-lg shadow-[0_1px_2px_rgba(0,0,0,0.03)] overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 bg-[#fbfbfe]">
               <span className="text-[10px] font-mono text-indigo-600 uppercase tracking-wider block">Configuration editor</span>
-              <h3 className="text-[16px] font-semibold text-gray-900 mt-1">基本信息设置</h3>
+              <h3 className="text-[16px] font-semibold text-gray-900 mt-1">{isCreateMode ? '新增 Bot 配置' : '基本信息设置'}</h3>
             </div>
 
             <form onSubmit={handleSave} className="p-6 space-y-6">
@@ -253,7 +330,10 @@ export default function BotConfig() {
                     type="text"
                     required
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      setSaveNotice(null);
+                    }}
                     placeholder="例如: 生产环境摘要Bot"
                     className="w-full px-3.5 py-2.5 rounded-lg border border-gray-200 text-[15px] text-gray-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 h-10 leading-normal"
                   />
@@ -266,8 +346,12 @@ export default function BotConfig() {
                   </label>
                   <input
                     type="text"
+                    required={isCreateMode}
                     value={ownerId}
-                    onChange={(e) => setOwnerId(e.target.value)}
+                    onChange={(e) => {
+                      setOwnerId(e.target.value);
+                      setSaveNotice(null);
+                    }}
                     placeholder={selectedBot?.owner_id_redacted ? `已脱敏: ${selectedBot.owner_id_redacted} (输入不为空进行覆盖)` : '输入数字形式 Telegram User ID'}
                     className="w-full px-3.5 py-2.5 rounded-lg border border-gray-200 text-[15px] text-gray-800 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 font-mono h-10 leading-normal"
                   />
@@ -277,13 +361,17 @@ export default function BotConfig() {
               {/* Bot Token Key Secret replacement input */}
               <div className="space-y-2">
                 <label className="text-[15px] font-semibold text-gray-700 block mt-2">
-                  Bot API Token 密钥更换
+                  {isCreateMode ? 'Bot API Token 密钥' : 'Bot API Token 密钥更换'}
                 </label>
                 <div className="relative">
                   <input
                     type="password"
+                    required={isCreateMode}
                     value={botToken}
-                    onChange={(e) => setBotToken(e.target.value)}
+                    onChange={(e) => {
+                      setBotToken(e.target.value);
+                      setSaveNotice(null);
+                    }}
                     placeholder={selectedBot?.secret.configured ? '密钥已配置。输入新 Bot Token 密码进行覆盖更换 (留空代表不作任何修改)' : '请填入格式为 (数字:字母) 的 Telegram Bot Token'}
                     className="w-full px-3.5 py-2.5 rounded-lg border border-gray-200 text-[15px] text-gray-800 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 font-mono h-10 leading-normal"
                   />
@@ -305,7 +393,10 @@ export default function BotConfig() {
                   <input
                     type="checkbox"
                     checked={enabled}
-                    onChange={(e) => setEnabled(e.target.checked)}
+                    onChange={(e) => {
+                      setEnabled(e.target.checked);
+                      setSaveNotice(null);
+                    }}
                     className="sr-only peer"
                   />
                   <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
@@ -316,7 +407,10 @@ export default function BotConfig() {
               <div className="pt-4 border-t border-gray-100 flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => loadBotFields(selectedBotId, bots)}
+                  onClick={() => {
+                    setSaveNotice(null);
+                    isCreateMode ? resetBotFields() : loadBotFields(selectedBotId, bots);
+                  }}
                   className="px-4 py-2 border border-gray-250 text-gray-500 hover:bg-gray-50 rounded-lg text-xs font-semibold cursor-pointer h-10 flex items-center justify-center"
                 >
                   重置
@@ -327,7 +421,7 @@ export default function BotConfig() {
                   className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer shadow-sm disabled:opacity-50 h-10"
                 >
                   {saving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  <span>保存并应用配置</span>
+                  <span>{isCreateMode ? '保存 Bot 配置' : '保存并应用配置'}</span>
                 </button>
               </div>
             </form>
@@ -349,14 +443,14 @@ export default function BotConfig() {
                       ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
                       : 'bg-amber-50 text-amber-700 border border-amber-100'
                   }`}>
-                    {selectedBot?.status === 'valid' ? '校验通过' : '待校验'}
+                    {isCreateMode ? '尚未配置' : selectedBot?.status === 'valid' ? '校验通过' : '待校验'}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between">
                   <span className="text-gray-500 font-medium">上次校验时间</span>
                   <span className="font-mono text-gray-700 text-[13px] text-right font-medium">
-                    {selectedBot?.last_validated_at ? new Date(selectedBot.last_validated_at).toLocaleTimeString() : '尚未校验'}
+                    {selectedBot?.last_validated_at ? new Date(selectedBot.last_validated_at).toLocaleTimeString() : isCreateMode ? '无配置' : '尚未校验'}
                   </span>
                 </div>
 
@@ -394,16 +488,19 @@ export default function BotConfig() {
 
                 <button
                   type="button"
+                  disabled={isCreateMode}
+                  title={isCreateMode ? '保存 Bot 配置后才能校验连接' : undefined}
                   onClick={() => {
+                    if (isCreateMode) return;
                     setTempToken('');
                     setValidationResult(null);
                     setValidationSucceeded(null);
                     setShowValDialog(true);
                   }}
-                  className="w-full h-10 border border-indigo-200 hover:border-indigo-300 text-indigo-600 bg-indigo-50/30 hover:bg-indigo-50 active:scale-[0.98] text-[13px] font-bold rounded-lg flex items-center justify-center gap-2 transition-all cursor-pointer mt-3"
+                  className="w-full h-10 border border-indigo-200 hover:border-indigo-300 text-indigo-600 bg-indigo-50/30 hover:bg-indigo-50 active:scale-[0.98] text-[13px] font-bold rounded-lg flex items-center justify-center gap-2 transition-all cursor-pointer mt-3 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
                 >
                   <Zap className="w-3.5 h-3.5" />
-                  <span>多路连接可用性测试</span>
+                  <span>{isCreateMode ? '保存后可校验连接' : '多路连接可用性测试'}</span>
                 </button>
               </div>
             </div>
@@ -430,14 +527,13 @@ export default function BotConfig() {
                 <div className="flex items-start gap-3">
                   <span className="w-5 h-5 rounded-full bg-emerald-600 text-white text-[10px] flex items-center justify-center font-bold font-mono shrink-0 select-none">3</span>
                   <p className="pt-0.5 font-medium text-gray-700">
-                    在左侧表单中选择或新增 Bot 实例，配置 <code>所有者 ID</code> 及 <code>APIToken</code> 并点击开启轮询服务。
+                    在左侧表单中配置 <code>所有者 ID</code> 及 <code>APIToken</code>，按需开启轮询服务后保存。
                   </p>
                 </div>
               </div>
             </div>
           </div>
         </div>
-      )}
 
       {/* Validation modal dialogue */}
       {showValDialog && (
@@ -501,96 +597,6 @@ export default function BotConfig() {
         </div>
       )}
 
-      {/* Add Bot Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowAddModal(false)}>
-          <div
-            className="w-full max-w-xl bg-white rounded-xl border border-[#e4e6ec] shadow-xl overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <form onSubmit={handleCreateBot}>
-              <div className="px-6 py-4 border-b border-[#e4e6ec] bg-[#fbfbfe] flex justify-between items-center">
-                <h3 className="font-bold text-gray-900 text-sm">新增 Telegram Bot 部署配置</h3>
-                <button type="button" onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600 focus:outline-none">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="p-6 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-700">Bot 别名 *</label>
-                    <input
-                      type="text"
-                      required
-                      value={newName}
-                      onChange={(e) => setNewName(e.target.value)}
-                      placeholder="例如: 压力测试辅助 bot"
-                      className="w-full px-3 py-2 rounded-lg border border-[#e4e6ec] text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-700">所有者 Telegram ID *</label>
-                    <input
-                      type="text"
-                      required
-                      value={newOwnerId}
-                      onChange={(e) => setNewOwnerId(e.target.value)}
-                      placeholder="数字 ID"
-                      className="w-full px-3 py-2 rounded-lg border border-[#e4e6ec] text-xs font-mono"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-gray-700">Telegram Bot Token API (秘钥) *</label>
-                  <input
-                    type="password"
-                    required
-                    value={newBotToken}
-                    onChange={(e) => setNewBotToken(e.target.value)}
-                    placeholder="格式: 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
-                    className="w-full px-3 py-2 rounded-lg border border-[#e4e6ec] text-xs font-mono"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between pt-2">
-                  <div className="space-y-0.5">
-                    <span className="text-xs font-semibold text-gray-800">建立后自动将其启用</span>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={newEnabled}
-                      onChange={(e) => setNewEnabled(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-                  </label>
-                </div>
-              </div>
-
-              <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2 bg-[#fafafa]">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 border border-gray-200 text-gray-500 rounded-lg text-xs font-semibold hover:bg-gray-50 cursor-pointer"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold inline-flex items-center gap-2 cursor-pointer shadow-sm"
-                >
-                  {saving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  <span>立即创建 Bot</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
