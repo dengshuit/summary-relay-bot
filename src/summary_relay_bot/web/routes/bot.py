@@ -71,11 +71,14 @@ def _bot_schema(bot: BotInstanceView | None) -> BotInstanceSchema | None:
 
 
 def _validation_schema(result: BotValidationResult) -> BotValidateResponse:
+    success = result.status == "valid"
     return BotValidateResponse(
+        success=success,
+        detail="Bot token validated successfully" if success else (result.error_message or "Bot validation failed"),
         status=result.status,
         last_validated_at=result.last_validated_at,
-        telegram_bot_id=result.telegram_bot_id,
-        telegram_username=result.telegram_username,
+        bot_id=result.telegram_bot_id,
+        username=result.telegram_username,
         error_type=result.error_type,
         error_message=result.error_message,
     )
@@ -108,7 +111,7 @@ async def get_bot_config(
     async with session_factory() as session:
         active, items = await list_bot_instances(session)
     return BotListResponse(
-        active=_bot_schema(active),
+        active=active.id if active is not None else None,
         items=[schema for item in items if (schema := _bot_schema(item)) is not None],
     )
 

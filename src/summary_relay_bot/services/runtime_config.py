@@ -6,7 +6,7 @@ from typing import Any
 
 from aiogram.exceptions import TelegramAPIError, TelegramUnauthorizedError
 from aiogram.utils.token import TokenValidationError
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -18,6 +18,8 @@ from summary_relay_bot.db.models import (
     GroupSummarySettings,
     LLMProvider,
     SummaryProfile,
+    SummaryJob,
+    SummaryResult,
     utcnow,
 )
 from summary_relay_bot.services.secrets import SecretError, SecretService, redact_configured_secret
@@ -36,7 +38,15 @@ class LLMProviderNotFoundError(RuntimeConfigError):
     pass
 
 
+class LLMProviderInUseError(RuntimeConfigError):
+    pass
+
+
 class SummaryProfileNotFoundError(RuntimeConfigError):
+    pass
+
+
+class SummaryProfileInUseError(RuntimeConfigError):
     pass
 
 
@@ -119,6 +129,7 @@ class LLMProviderView:
     provider_type: str
     base_url: str | None
     default_model: str
+    models: list[str]
     timeout_seconds: int
     max_retries: int
     enabled: bool
@@ -323,14 +334,9 @@ async def list_bot_instances(session: AsyncSession) -> tuple[BotInstanceView | N
         await session.scalars(select(BotInstance).order_by(BotInstance.id))
     ).all()
     active = next((bot_instance for bot_instance in bot_instances if bot_instance.enabled), None)
-    active_id = active.id if active is not None else None
     return (
         _bot_instance_view(active) if active is not None else None,
-        [
-            _bot_instance_view(bot_instance)
-            for bot_instance in bot_instances
-            if bot_instance.id != active_id
-        ],
+        [_bot_instance_view(bot_instance) for bot_instance in bot_instances],
     )
 
 
@@ -626,6 +632,53 @@ def _validate_llm_provider_fields(
         raise RuntimeConfigError("max_retries must be non-negative")
 
 
+def _normalize_provider_models(
+    models: list[str] | None,
+    *,
+    default_model: str,
+) -> list[str]:
+    if models is None:
+        return [default_model]
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for model in models:
+        if not isinstance(model, str):
+            raise RuntimeConfigError("models must contain model IDs")
+        model_id = model.strip()
+        if model_id == "":
+            raise RuntimeConfigError("models must contain non-empty model IDs")
+        if model_id in seen:
+            continue
+        seen.add(model_id)
+        normalized.append(model_id)
+
+    if not normalized:
+        raise RuntimeConfigError("models must contain at least one model")
+    if default_model not in seen:
+        raise RuntimeConfigError("default_model must be included in models")
+    return normalized
+
+
+def _provider_models_or_default(provider: LLMProvider) -> list[str]:
+    raw_models = provider.models if isinstance(provider.models, list) else None
+    if not raw_models:
+        return [provider.default_model]
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_model in raw_models:
+        if not isinstance(raw_model, str):
+            continue
+        model_id = raw_model.strip()
+        if model_id == "" or model_id in seen:
+            continue
+        seen.add(model_id)
+        normalized.append(model_id)
+    if provider.default_model not in seen:
+        normalized.insert(0, provider.default_model)
+    return normalized or [provider.default_model]
+
+
 def _validate_summary_profile_fields(
     *,
     temperature: float | None,
@@ -645,6 +698,7 @@ def _llm_provider_redacted_dict(provider: LLMProvider) -> dict[str, Any]:
         "base_url": provider.base_url,
         "api_key": redact_configured_secret(provider.api_key_encrypted),
         "default_model": provider.default_model,
+        "models": _provider_models_or_default(provider),
         "timeout_seconds": provider.timeout_seconds,
         "max_retries": provider.max_retries,
         "enabled": provider.enabled,
@@ -662,6 +716,7 @@ def _llm_provider_view(provider: LLMProvider) -> LLMProviderView:
         provider_type=provider.provider_type,
         base_url=provider.base_url,
         default_model=provider.default_model,
+        models=_provider_models_or_default(provider),
         timeout_seconds=provider.timeout_seconds,
         max_retries=provider.max_retries,
         enabled=provider.enabled,
@@ -746,6 +801,7 @@ async def create_llm_provider(
     provider_type: str,
     api_key: str,
     default_model: str,
+    models: list[str] | None = None,
     base_url: str | None = None,
     timeout_seconds: int = 30,
     max_retries: int = 2,
@@ -756,6 +812,7 @@ async def create_llm_provider(
     normalized_provider_type = _normalize_required_text(provider_type, "provider_type")
     normalized_api_key = _normalize_required_text(api_key, "api_key")
     normalized_default_model = _normalize_required_text(default_model, "default_model")
+    normalized_models = _normalize_provider_models(models, default_model=normalized_default_model)
     normalized_base_url = _normalize_optional_text(base_url)
     _validate_llm_provider_fields(
         provider_type=normalized_provider_type,
@@ -769,6 +826,7 @@ async def create_llm_provider(
         base_url=normalized_base_url,
         api_key_encrypted=secret_service.encrypt(normalized_api_key),
         default_model=normalized_default_model,
+        models=normalized_models,
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
         enabled=enabled,
@@ -786,6 +844,7 @@ async def create_llm_provider(
             "provider_type": provider.provider_type,
             "api_key": redact_configured_secret(provider.api_key_encrypted),
             "default_model": provider.default_model,
+            "models": _provider_models_or_default(provider),
             "enabled": provider.enabled,
         },
     )
@@ -802,6 +861,7 @@ async def update_llm_provider(
     base_url: str | None | object = _UNSET,
     api_key: str | None | object = _UNSET,
     default_model: str | None | object = _UNSET,
+    models: list[str] | None | object = _UNSET,
     timeout_seconds: int | None | object = _UNSET,
     max_retries: int | None | object = _UNSET,
     enabled: bool | None | object = _UNSET,
@@ -813,6 +873,8 @@ async def update_llm_provider(
     changed_general = False
     replaced_key = False
     should_reset_validation = False
+    next_default_model = provider.default_model
+    next_models = _provider_models_or_default(provider)
 
     if name is not _UNSET and name is not None:
         normalized_name = _normalize_required_text(name, "name")
@@ -838,10 +900,26 @@ async def update_llm_provider(
 
     if default_model is not _UNSET and default_model is not None:
         normalized_default_model = _normalize_required_text(default_model, "default_model")
+        next_default_model = normalized_default_model
         if normalized_default_model != provider.default_model:
             provider.default_model = normalized_default_model
             changed_general = True
             should_reset_validation = True
+
+    if models is not _UNSET:
+        if models is not None and not isinstance(models, list):
+            raise RuntimeConfigError("models must contain model IDs")
+        next_models = _normalize_provider_models(
+            models if models is not None else None,
+            default_model=next_default_model,
+        )
+    else:
+        next_models = _normalize_provider_models(next_models, default_model=next_default_model)
+
+    if next_models != _provider_models_or_default(provider):
+        provider.models = next_models
+        changed_general = True
+        should_reset_validation = True
 
     if timeout_seconds is not _UNSET and timeout_seconds is not None:
         if timeout_seconds <= 0:
@@ -975,6 +1053,41 @@ async def validate_llm_provider(
     provider.updated_at = now
     await session.flush()
     return result
+
+
+async def delete_llm_provider(
+    session: AsyncSession,
+    *,
+    provider_id: int,
+    actor: str = "system",
+) -> None:
+    provider = await get_llm_provider(session, provider_id)
+    references = {
+        "summary_profiles": await session.scalar(
+            select(func.count(SummaryProfile.id)).where(SummaryProfile.llm_provider_id == provider.id)
+        ),
+        "summary_jobs": await session.scalar(
+            select(func.count(SummaryJob.id)).where(SummaryJob.llm_provider_id == provider.id)
+        ),
+        "summary_results": await session.scalar(
+            select(func.count(SummaryResult.id)).where(SummaryResult.llm_provider_id == provider.id)
+        ),
+    }
+    in_use = {name: int(count or 0) for name, count in references.items() if int(count or 0) > 0}
+    if in_use:
+        raise LLMProviderInUseError("llm provider is referenced and cannot be deleted")
+
+    redacted_before = _llm_provider_redacted_dict(provider)
+    await session.delete(provider)
+    await session.flush()
+    await create_audit_log(
+        session,
+        actor=actor,
+        action="delete_llm_provider",
+        entity_type="llm_provider",
+        entity_id=str(provider_id),
+        redacted_before=redacted_before,
+    )
 
 
 async def list_summary_profiles(session: AsyncSession) -> list[SummaryProfileView]:
@@ -1201,8 +1314,52 @@ async def set_default_summary_profile(
     return _summary_profile_view(profile)
 
 
+async def delete_summary_profile(
+    session: AsyncSession,
+    *,
+    profile_id: int,
+    actor: str = "system",
+) -> None:
+    profile = await get_summary_profile(session, profile_id)
+    if profile.is_default:
+        raise SummaryProfileInUseError("default summary profile cannot be deleted")
+
+    references = {
+        "group_summary_settings": await session.scalar(
+            select(func.count(GroupSummarySettings.id)).where(
+                GroupSummarySettings.summary_profile_id == profile.id
+            )
+        ),
+        "summary_jobs": await session.scalar(
+            select(func.count(SummaryJob.id)).where(SummaryJob.summary_profile_id == profile.id)
+        ),
+        "summary_results": await session.scalar(
+            select(func.count(SummaryResult.id)).where(SummaryResult.summary_profile_id == profile.id)
+        ),
+    }
+    in_use = {name: int(count or 0) for name, count in references.items() if int(count or 0) > 0}
+    if in_use:
+        raise SummaryProfileInUseError("summary profile is referenced and cannot be deleted")
+
+    redacted_before = _summary_profile_redacted_dict(profile)
+    await session.delete(profile)
+    await session.flush()
+    await create_audit_log(
+        session,
+        actor=actor,
+        action="delete_summary_profile",
+        entity_type="summary_profile",
+        entity_id=str(profile_id),
+        redacted_before=redacted_before,
+    )
+
+
 async def default_summary_profile(session: AsyncSession) -> SummaryProfile | None:
-    return await session.scalar(select(SummaryProfile).where(SummaryProfile.is_default.is_(True)))
+    return await session.scalar(
+        select(SummaryProfile)
+        .options(selectinload(SummaryProfile.llm_provider))
+        .where(SummaryProfile.is_default.is_(True))
+    )
 
 
 async def set_group_summary_settings(

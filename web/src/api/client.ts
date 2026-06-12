@@ -1,235 +1,305 @@
-import { Toast } from "../ui/semi";
-import type {
-  AuditLogListResponse,
+import {
+  DashboardData,
   BotInstance,
-  BotListResponse,
-  BotValidateResponse,
-  DashboardResponse,
-  GroupDetail,
-  GroupListResponse,
-  GroupSummarySettings,
   LLMProvider,
-  LLMProviderListResponse,
-  LLMProviderTestResponse,
-  SummaryJob,
   SummaryProfile,
-  SummaryProfileListResponse,
-  TriggerSummaryJobResponse
-} from "./types";
+  GroupItem,
+  GroupDetail,
+  AuditLog,
+  GroupSummarySettings,
+  HistoricalSummary,
+  PrivateRelaysResponse,
+  SummaryJob
+} from './types';
 
-const TOKEN_KEY = "summary_relay_webui_token";
-
-export class ApiError extends Error {
-  status: number;
-  code: string;
-  details?: Record<string, unknown>;
-
-  constructor(status: number, code: string, message: string, details?: Record<string, unknown>) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.code = code;
-    this.details = details;
-  }
-}
+const TOKEN_KEY = 'summary_relay_bot_admin_token';
 
 export function getStoredToken(): string | null {
   return sessionStorage.getItem(TOKEN_KEY);
 }
 
-export function setStoredToken(token: string): void {
+export function setStoredToken(token: string) {
   sessionStorage.setItem(TOKEN_KEY, token);
 }
 
-export function clearStoredToken(): void {
+export function clearStoredToken() {
   sessionStorage.removeItem(TOKEN_KEY);
 }
 
-async function readError(response: Response): Promise<ApiError> {
-  try {
-    const payload = await response.json();
-    const error = payload?.error;
-    return new ApiError(
-      response.status,
-      String(error?.code || "request_failed"),
-      String(error?.message || "请求失败"),
-      error?.details
-    );
-  } catch {
-    return new ApiError(response.status, "request_failed", "请求失败");
-  }
+export function isAuthenticated(): boolean {
+  return !!getStoredToken();
 }
 
-async function apiRequest<T>(
-  path: string,
-  init: RequestInit = {},
-  options: { suppressToast?: boolean; allowUnauthorized?: boolean } = {}
-): Promise<T> {
-  const token = getStoredToken();
-  const headers = new Headers(init.headers);
-  headers.set("Accept", "application/json");
-  if (init.body !== undefined && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
-  const response = await fetch(path, { ...init, headers });
+/**
+ * Handle API response parsing, centralizing 401 redirect logic.
+ */
+async function handleResponse<T>(response: Response): Promise<T> {
   if (response.status === 401) {
     clearStoredToken();
-    if (!options.allowUnauthorized) {
-      window.dispatchEvent(new CustomEvent("webui:unauthorized"));
-    }
-    throw new ApiError(401, "unauthorized", "认证失败");
+    // Dispatch a custom event so the UI can redirect gracefully
+    window.dispatchEvent(new CustomEvent('api-unauthorized'));
+    throw new Error('认证失败');
   }
+
+  const contentType = response.headers.get('content-type');
+  let data: any;
+  if (contentType && contentType.includes('application/json')) {
+    data = await response.json();
+  } else {
+    data = await response.text();
+  }
+
   if (!response.ok) {
-    const error = await readError(response);
-    if (!options.suppressToast) {
-      Toast.error(error.message || "请求失败");
-    }
-    throw error;
+    const errMsg = data?.error?.message || data?.detail || `HTTP Error ${response.status}`;
+    throw new Error(errMsg);
   }
-  if (response.status === 204) {
-    return undefined as T;
-  }
-  return (await response.json()) as T;
+
+  return data as T;
 }
 
-function jsonBody(payload: unknown): RequestInit {
-  return {
-    method: "POST",
-    body: JSON.stringify(payload)
+/**
+ * Make an authenticated or unauthenticated fetch to /api/*
+ */
+export async function apiRequest<T>(
+  method: string,
+  path: string,
+  body?: any,
+  signal?: AbortSignal
+): Promise<T> {
+  const token = getStoredToken();
+  const headers: HeadersInit = {
+    'Accept': 'application/json',
   };
-}
 
-function buildQuery(params: Record<string, string | number | boolean | null | undefined>): string {
-  const search = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "") {
-      search.set(key, String(value));
-    }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  if (body) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  const response = await fetch(path, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+    signal,
   });
-  const query = search.toString();
-  return query ? `?${query}` : "";
+
+  return handleResponse<T>(response);
 }
 
 export const api = {
-  dashboard: () => apiRequest<DashboardResponse>("/api/dashboard"),
-
-  bot: {
-    list: () => apiRequest<BotListResponse>("/api/bot"),
-    create: (payload: {
-      name: string;
-      owner_id: number;
-      enabled: boolean;
-      bot_token: string;
-    }) => apiRequest<BotInstance>("/api/bot", jsonBody(payload)),
-    update: (payload: {
-      id: number;
-      name?: string;
-      owner_id?: number;
-      enabled?: boolean;
-      bot_token?: string;
-    }) =>
-      apiRequest("/api/bot", {
-        method: "PATCH",
-        body: JSON.stringify(payload)
-      }),
-    validate: (payload: { id: number; bot_token?: string }) =>
-      apiRequest<BotValidateResponse>("/api/bot/validate", jsonBody(payload))
+  // Authentication
+  async login(token: string): Promise<{ success: boolean; token: string }> {
+    // In our spec, we validate the token directly by calling whoami or trying to retrieve bot info
+    const headers = { 'Authorization': `Bearer ${token}` };
+    const response = await fetch('/api/bot', { headers });
+    if (response.status === 401) {
+      throw new Error('认证失败');
+    }
+    if (!response.ok) {
+      throw new Error('认证失败');
+    }
+    setStoredToken(token);
+    return { success: true, token };
   },
 
-  providers: {
-    list: () => apiRequest<LLMProviderListResponse>("/api/llm-providers"),
-    create: (payload: {
-      name: string;
-      provider_type: string;
-      base_url?: string | null;
-      api_key: string;
-      default_model: string;
-      timeout_seconds: number;
-      max_retries: number;
-      enabled: boolean;
-    }) => apiRequest<LLMProvider>("/api/llm-providers", jsonBody(payload)),
-    update: (id: number, payload: Partial<{
-      name: string;
-      provider_type: string;
-      base_url: string | null;
-      api_key: string;
-      default_model: string;
-      timeout_seconds: number;
-      max_retries: number;
-      enabled: boolean;
-    }>) =>
-      apiRequest<LLMProvider>(`/api/llm-providers/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload)
-      }),
-    test: (id: number) =>
-      apiRequest<LLMProviderTestResponse>(`/api/llm-providers/${id}/test`, { method: "POST" })
+  // Dashboard
+  async getDashboard(): Promise<DashboardData> {
+    return apiRequest<DashboardData>('GET', '/api/dashboard');
   },
 
-  profiles: {
-    list: () => apiRequest<SummaryProfileListResponse>("/api/summary-profiles"),
-    create: (payload: {
-      name: string;
-      llm_provider_id: number;
-      model: string | null;
-      prompt_version: string;
-      system_prompt: string | null;
-      temperature: number | null;
-      max_output_tokens: number | null;
-      enabled: boolean;
-      is_default: boolean;
-    }) => apiRequest<SummaryProfile>("/api/summary-profiles", jsonBody(payload)),
-    update: (id: number, payload: Partial<{
-      name: string;
-      llm_provider_id: number;
-      model: string | null;
-      prompt_version: string;
-      system_prompt: string | null;
-      temperature: number | null;
-      max_output_tokens: number | null;
-      enabled: boolean;
-      is_default: boolean;
-    }>) =>
-      apiRequest<SummaryProfile>(`/api/summary-profiles/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload)
-      }),
-    setDefault: (id: number) =>
-      apiRequest<SummaryProfile>(`/api/summary-profiles/${id}/set-default`, { method: "POST" })
+  // Bot Instances
+  async getBots(): Promise<{ active: number | null; items: BotInstance[] }> {
+    return apiRequest<{ active: number | null; items: BotInstance[] }>('GET', '/api/bot');
   },
 
-  groups: {
-    list: (params: {
-      q?: string;
-      enabled?: boolean | null;
-      profile_id?: number | null;
-      status?: string | null;
-      limit?: number;
-      cursor?: string | null;
-    } = {}) => apiRequest<GroupListResponse>(`/api/groups${buildQuery(params)}`),
-    detail: (id: number) => apiRequest<GroupDetail>(`/api/groups/${id}`),
-    updateSettings: (id: number, payload: GroupSummarySettings) =>
-      apiRequest<GroupSummarySettings>(`/api/groups/${id}/summary-settings`, {
-        method: "PATCH",
-        body: JSON.stringify(payload)
-      }),
-    triggerSummary: (id: number) =>
-      apiRequest<TriggerSummaryJobResponse>(`/api/groups/${id}/summary-jobs`, { method: "POST" }),
-    pollJob: (pollUrl: string) => apiRequest<SummaryJob>(pollUrl)
+  async createBot(data: { name: string; owner_id: number | string; enabled: boolean; bot_token: string }): Promise<BotInstance> {
+    return apiRequest<BotInstance>('POST', '/api/bot', { ...data, owner_id: Number(data.owner_id) });
   },
 
-  auditLogs: {
-    list: (params: {
-      entity_type?: string;
-      action?: string;
-      from?: string;
-      to?: string;
-      limit?: number;
-      cursor?: string | null;
-    } = {}) => apiRequest<AuditLogListResponse>(`/api/audit-logs${buildQuery(params)}`)
+  async updateBot(data: { id: number | string; name?: string; owner_id?: number | string; enabled?: boolean; bot_token?: string }): Promise<BotInstance> {
+    const payload = {
+      ...data,
+      id: Number(data.id),
+      owner_id: data.owner_id === undefined ? undefined : Number(data.owner_id),
+    };
+    return apiRequest<BotInstance>('PATCH', '/api/bot', payload);
+  },
+
+  async validateBot(data: { id: number | string; bot_token?: string | null }): Promise<{ success: boolean; detail: string; status: string; bot_id: number | null; username: string | null }> {
+    return apiRequest<{ success: boolean; detail: string; status: string; bot_id: number | null; username: string | null }>('POST', '/api/bot/validate', {
+      ...data,
+      id: Number(data.id),
+    });
+  },
+
+  // LLM Providers
+  async getProviders(): Promise<LLMProvider[]> {
+    return apiRequest<LLMProvider[]>('GET', '/api/llm-providers');
+  },
+
+  async createProvider(data: Partial<LLMProvider> & { name: string; provider_type: string; default_model: string }): Promise<LLMProvider> {
+    return apiRequest<LLMProvider>('POST', '/api/llm-providers', data);
+  },
+
+  async updateProvider(id: number | string, data: Partial<LLMProvider>): Promise<LLMProvider> {
+    return apiRequest<LLMProvider>('PATCH', `/api/llm-providers/${id}`, data);
+  },
+
+  async deleteProvider(id: number | string): Promise<{ success: boolean }> {
+    return apiRequest<{ success: boolean }>('DELETE', `/api/llm-providers/${id}`);
+  },
+
+  async testProvider(id: number | string): Promise<{ success: boolean; detail: string }> {
+    return apiRequest<{ success: boolean; detail: string }>('POST', `/api/llm-providers/${id}/test`);
+  },
+
+  async fetchUpstreamModels(data: { provider_type: string; base_url?: string; api_key?: string }): Promise<{ success: boolean; source: string; detail: string; models: string[] }> {
+    return apiRequest<{ success: boolean; source: string; detail: string; models: string[] }>('POST', '/api/llm-providers/fetch-models', data);
+  },
+
+  async getProviderModels(id: number | string): Promise<{ success: boolean; models: string[] }> {
+    return apiRequest<{ success: boolean; models: string[] }>('GET', `/api/llm-providers/${id}/models`);
+  },
+
+  // Summary Profiles
+  async getProfiles(): Promise<SummaryProfile[]> {
+    return apiRequest<SummaryProfile[]>('GET', '/api/summary-profiles');
+  },
+
+  async createProfile(data: Partial<SummaryProfile> & { name: string; llm_provider_id: number | string }): Promise<SummaryProfile> {
+    return apiRequest<SummaryProfile>('POST', '/api/summary-profiles', {
+      ...data,
+      llm_provider_id: Number(data.llm_provider_id),
+    });
+  },
+
+  async updateProfile(id: number | string, data: Partial<SummaryProfile>): Promise<SummaryProfile> {
+    return apiRequest<SummaryProfile>('PATCH', `/api/summary-profiles/${id}`, {
+      ...data,
+      llm_provider_id: data.llm_provider_id === undefined ? undefined : Number(data.llm_provider_id),
+    });
+  },
+
+  async deleteProfile(id: number | string): Promise<{ success: boolean }> {
+    return apiRequest<{ success: boolean }>('DELETE', `/api/summary-profiles/${id}`);
+  },
+
+  async setDefaultProfile(id: number | string): Promise<SummaryProfile> {
+    return apiRequest<SummaryProfile>('POST', `/api/summary-profiles/${id}/set-default`);
+  },
+
+  // Groups
+  async getGroups(params: {
+    q?: string;
+    enabled?: boolean | string;
+    profile_id?: number | string;
+    status?: string;
+    limit?: number;
+    cursor?: string;
+  }): Promise<{ items: GroupItem[]; next_cursor: string | null }> {
+    const query = new URLSearchParams();
+    if (params.q) query.append('q', params.q);
+    if (params.enabled !== undefined && params.enabled !== '') {
+      query.append('enabled', String(params.enabled));
+    }
+    if (params.profile_id) query.append('profile_id', String(params.profile_id));
+    if (params.status) query.append('status', params.status);
+    if (params.limit) query.append('limit', String(params.limit));
+    if (params.cursor) query.append('cursor', params.cursor);
+
+    return apiRequest<{ items: GroupItem[]; next_cursor: string | null }>(
+      'GET',
+      `/api/groups?${query.toString()}`
+    );
+  },
+
+  async getGroupDetail(id: number | string): Promise<GroupDetail> {
+    return apiRequest<GroupDetail>('GET', `/api/groups/${id}`);
+  },
+
+  async updateGroupSettings(id: number | string, settings: GroupSummarySettings): Promise<GroupDetail> {
+    return apiRequest<GroupDetail>('PATCH', `/api/groups/${id}/summary-settings`, settings);
+  },
+
+  async triggerGroupSummary(id: number | string): Promise<{ job: SummaryJob; poll_url: string }> {
+    return apiRequest<{ job: SummaryJob; poll_url: string }>('POST', `/api/groups/${id}/summary-jobs`);
+  },
+
+  // Poll job status via custom poll_url or standardized route
+  async pollJob(pollUrl: string): Promise<SummaryJob> {
+    return apiRequest<SummaryJob>('GET', pollUrl);
+  },
+
+  // Historical summaries list
+  async getSummaries(params: {
+    q?: string;
+    status?: string;
+    group_id?: number | string;
+    from?: string;
+    to?: string;
+    limit?: number;
+    cursor?: string;
+  } = {}): Promise<{ items: HistoricalSummary[]; next_cursor: string | null }> {
+    const query = new URLSearchParams();
+    if (params.q) query.append('q', params.q);
+    if (params.status) query.append('status', params.status);
+    if (params.group_id) query.append('group_id', String(params.group_id));
+    if (params.from) query.append('from', params.from);
+    if (params.to) query.append('to', params.to);
+    if (params.limit) query.append('limit', String(params.limit));
+    if (params.cursor) query.append('cursor', params.cursor);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return apiRequest<{ items: HistoricalSummary[]; next_cursor: string | null }>(
+      'GET',
+      `/api/summaries${suffix}`
+    );
+  },
+
+  async reloadBotRuntime(): Promise<{ accepted: boolean; status: string; detail: string }> {
+    return apiRequest<{ accepted: boolean; status: string; detail: string }>('POST', '/api/system/reload-bot-runtime');
+  },
+
+  // Audit Logs
+  async getAuditLogs(params: {
+    entity_type?: string;
+    action?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+    cursor?: string;
+  }): Promise<{ items: AuditLog[]; next_cursor: string | null }> {
+    const query = new URLSearchParams();
+    if (params.entity_type) query.append('entity_type', params.entity_type);
+    if (params.action) query.append('action', params.action);
+    if (params.from) query.append('from', params.from);
+    if (params.to) query.append('to', params.to);
+    if (params.limit) query.append('limit', String(params.limit));
+    if (params.cursor) query.append('cursor', params.cursor);
+
+    return apiRequest<{ items: AuditLog[]; next_cursor: string | null }>(
+      'GET',
+      `/api/audit-logs?${query.toString()}`
+    );
+  },
+
+  // Private Messaging Relays
+  async getPrivateRelays(params: {
+    direction?: string;
+    status?: string;
+    q?: string;
+    limit?: number;
+    cursor?: string;
+  }): Promise<PrivateRelaysResponse> {
+    const query = new URLSearchParams();
+    if (params.direction) query.append('direction', params.direction);
+    if (params.status) query.append('status', params.status);
+    if (params.q) query.append('q', params.q);
+    if (params.limit) query.append('limit', String(params.limit));
+    if (params.cursor) query.append('cursor', params.cursor);
+
+    return apiRequest<PrivateRelaysResponse>('GET', `/api/private-relays?${query.toString()}`);
   }
 };

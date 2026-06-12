@@ -232,7 +232,7 @@ Secrets are replacement-only:
 - The WebUI shows configured/unconfigured state and update timestamps only. It never displays plaintext secrets.
 - Leaving a secret input blank means "do not modify"; entering a non-empty value replaces the stored secret.
 
-`needs_restart` means the running polling process has not picked up a restart-required Bot runtime change. Replacing a Bot token, changing owner ID, or enabling a different Bot requires a service restart. LLM Provider, Summary Profile, and group summary settings changes do not require restart.
+`needs_restart` means the running Telegram polling runtime has not picked up a Bot runtime change yet. Replacing a Bot token, changing owner ID, or enabling a different Bot attempts an in-process Bot runtime reload; if the runtime is busy or unavailable, the WebUI can retry with the Bot runtime reload action. This does not restart the Web API process. LLM Provider, Summary Profile, and group summary settings changes do not require Bot runtime reload.
 
 ## Telegram Setup
 

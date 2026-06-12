@@ -232,7 +232,7 @@ Secret 字段只支持替换：
 - WebUI 只展示已配置/未配置状态和更新时间，永不展示明文 secret。
 - secret 输入留空表示“不修改”；输入非空值表示替换已保存的 secret。
 
-`needs_restart` 表示当前运行中的 polling 进程尚未加载需要重启才能生效的 Bot 运行配置。替换 Bot token、修改 owner id、启用另一个 Bot 都需要重启服务；LLM Provider、Summary Profile 和群组摘要设置变更不需要重启。
+`needs_restart` 表示当前 Telegram polling 运行时尚未加载某个 Bot 运行配置变更。替换 Bot token、修改 owner id、启用另一个 Bot 会尝试进程内 Bot 运行时重载；如果运行时繁忙或不可用，WebUI 可以通过 Bot 运行时重载动作重试。这个操作不会重启 Web API 进程。LLM Provider、Summary Profile 和群组摘要设置变更不需要重载 Bot 运行时。
 
 ## Telegram 设置
 

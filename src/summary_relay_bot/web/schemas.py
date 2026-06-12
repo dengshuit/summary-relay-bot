@@ -25,7 +25,7 @@ class BotInstanceSchema(BaseModel):
 
 
 class BotListResponse(BaseModel):
-    active: BotInstanceSchema | None
+    active: int | None
     items: list[BotInstanceSchema]
 
 
@@ -50,10 +50,12 @@ class BotValidateRequest(BaseModel):
 
 
 class BotValidateResponse(BaseModel):
+    success: bool
+    detail: str
     status: str
     last_validated_at: datetime
-    telegram_bot_id: int | None = None
-    telegram_username: str | None = None
+    bot_id: int | None = None
+    username: str | None = None
     error_type: str | None = None
     error_message: str | None = None
 
@@ -64,6 +66,7 @@ class LLMProviderSchema(BaseModel):
     provider_type: str
     base_url: str | None = None
     default_model: str
+    models: list[str]
     timeout_seconds: int
     max_retries: int
     enabled: bool
@@ -82,6 +85,7 @@ class LLMProviderCreateRequest(BaseModel):
     base_url: str | None = None
     api_key: str
     default_model: str
+    models: list[str] | None = None
     timeout_seconds: int = 30
     max_retries: int = 2
     enabled: bool = True
@@ -93,28 +97,49 @@ class LLMProviderUpdateRequest(BaseModel):
     base_url: str | None = None
     api_key: str | None = None
     default_model: str | None = None
+    models: list[str] | None = None
     timeout_seconds: int | None = None
     max_retries: int | None = None
     enabled: bool | None = None
 
 
 class LLMProviderTestResponse(BaseModel):
+    success: bool
+    detail: str
     status: str
     last_validated_at: datetime
     error_type: str | None = None
     error_message: str | None = None
 
 
-class SummaryProfileProviderSchema(BaseModel):
-    id: int
-    name: str
+class ProviderModelsResponse(BaseModel):
+    success: bool
+    models: list[str]
+
+
+class FetchProviderModelsRequest(BaseModel):
     provider_type: str
+    base_url: str | None = None
+    api_key: str | None = None
+
+
+class FetchProviderModelsResponse(BaseModel):
+    success: bool
+    source: str
+    detail: str
+    models: list[str]
+
+
+class DeleteResponse(BaseModel):
+    success: bool
 
 
 class SummaryProfileSchema(BaseModel):
     id: int
     name: str
-    llm_provider: SummaryProfileProviderSchema
+    llm_provider_id: int
+    llm_provider_name: str
+    provider_type: str
     model: str | None = None
     effective_model: str
     uses_provider_default_model: bool
@@ -165,8 +190,7 @@ class DashboardBotSchema(BaseModel):
     enabled: bool
     status: str
     needs_restart: bool
-    telegram_bot_id: int | None = None
-    telegram_username: str | None = None
+    telegram_identity: str | None = None
     last_validated_at: datetime | None = None
 
 
@@ -179,14 +203,27 @@ class DefaultProfileSchema(BaseModel):
     id: int
     name: str
     enabled: bool
-    llm_provider_id: int
+    provider_id: int
+    provider_name: str
     prompt_version: str
+
+
+class SummaryTrendPointSchema(BaseModel):
+    time: str
+    count: int
+
+
+class SummaryGroupDistributionSchema(BaseModel):
+    name: str
+    value: int
 
 
 class Summary24hSchema(BaseModel):
     total: int
     succeeded: int
     failed: int
+    trend: list[SummaryTrendPointSchema]
+    group_distribution: list[SummaryGroupDistributionSchema]
 
 
 class RecentAuditLogSchema(BaseModel):
@@ -218,6 +255,8 @@ class GroupSummarySettingsSchema(BaseModel):
 class EffectiveSummaryProfileSchema(BaseModel):
     id: int
     name: str
+    model: str | None = None
+    provider: str | None = None
 
 
 class GroupLastSummarySchema(BaseModel):
@@ -248,12 +287,15 @@ class SummaryJobSchema(BaseModel):
     chat_id: int
     trigger_type: str
     status: str
+    sequence_range: str | None = None
     starting_sequence: int
     cutoff_sequence: int | None = None
     prompt_version: str | None = None
     llm_provider_id: int | None = None
     summary_profile_id: int | None = None
     model: str | None = None
+    provider: str | None = None
+    profile_name: str | None = None
     created_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -311,3 +353,78 @@ class AuditLogSchema(BaseModel):
 class AuditLogListResponse(BaseModel):
     items: list[AuditLogSchema]
     next_cursor: str | None = None
+
+
+class HistoricalSummarySchema(BaseModel):
+    id: int
+    job_id: int
+    group_id: int
+    group_title: str | None = None
+    group_username: str | None = None
+    chat_id: int
+    status: str
+    trigger_type: str
+    sequence_range: str | None = None
+    model: str | None = None
+    provider: str | None = None
+    profile_name: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    content: str | None = None
+
+
+class HistoricalSummaryListResponse(BaseModel):
+    items: list[HistoricalSummarySchema]
+    next_cursor: str | None = None
+
+
+class PrivateRelayUserSchema(BaseModel):
+    id: int
+    telegram_user_id: int
+    username: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+
+
+class PrivateRelayReplyMapSchema(BaseModel):
+    source_kind: str
+    status: str
+    admin_message_id: int | None = None
+
+
+class PrivateRelayItemSchema(BaseModel):
+    id: int
+    private_user: PrivateRelayUserSchema
+    direction: str
+    message_type: str
+    text_preview: str | None = None
+    caption_preview: str | None = None
+    delivery_status: str
+    error_type: str | None = None
+    error_message: str | None = None
+    telegram_message_id: int | None = None
+    admin_message_id: int | None = None
+    reply_maps: list[PrivateRelayReplyMapSchema]
+    created_at: datetime
+
+
+class PrivateRelayStatsSchema(BaseModel):
+    total: int
+    sent: int
+    partial_failed: int
+    failed: int
+    blocked: int
+
+
+class PrivateRelaysResponse(BaseModel):
+    items: list[PrivateRelayItemSchema]
+    next_cursor: str | None = None
+    stats: PrivateRelayStatsSchema
+
+
+class BotRuntimeReloadResponse(BaseModel):
+    accepted: bool
+    status: str
+    detail: str

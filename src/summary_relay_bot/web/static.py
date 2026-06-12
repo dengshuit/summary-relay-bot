@@ -31,6 +31,14 @@ def mount_webui_static(app: FastAPI, *, static_dir: Path | str | None = None) ->
 
     dist_root = dist_dir.resolve()
 
+    @app.api_route(
+        "/api/{path:path}",
+        methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        include_in_schema=False,
+    )
+    async def api_not_found(path: str) -> None:
+        raise StarletteHTTPException(status_code=404)
+
     @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def webui_static_or_spa_fallback(request: Request, path: str) -> FileResponse:
         if path == "api" or path.startswith("api/"):

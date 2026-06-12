@@ -121,6 +121,8 @@ async def test_get_groups_and_detail_are_read_only_and_redacted(session_factory)
     assert payload["items"][0]["effective_profile"] == {
         "id": group_profile.id,
         "name": "Group profile",
+        "model": "claude-group",
+        "provider": "Primary Claude",
     }
     assert detail["summary_state"]["last_summary_sequence"] == 0
     assert detail["active_job"] is None
@@ -176,12 +178,14 @@ async def test_patch_group_summary_settings_validates_and_allows_null_profile(se
     assert invalid.status_code == 400
     assert invalid.json()["error"]["code"] == "validation_error"
     assert null_profile.status_code == 200
-    assert null_profile.json() == {
+    assert null_profile.json()["settings"] == {
         "enabled": False,
         "interval_minutes": 45,
         "summary_profile_id": None,
         "timezone": "UTC",
     }
+    assert null_profile.json()["id"] == group_id
+    assert null_profile.json()["effective_profile"]["id"] == default_profile.id
     async with session_factory() as session:
         group = await upsert_group(session, chat_id=-200, chat_type="group", title="Group")
         settings = await session.scalar(

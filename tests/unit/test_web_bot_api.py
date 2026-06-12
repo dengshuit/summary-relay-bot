@@ -112,10 +112,10 @@ async def test_get_bot_returns_redacted_active_and_items(session_factory) -> Non
     assert response.status_code == 200
     payload = response.json()
     rendered = response.text
-    assert payload["active"]["name"] == "Main bot"
-    assert payload["active"]["owner_id_redacted"] == "88***78"
-    assert payload["active"]["secret"]["configured"] is True
-    assert payload["items"][0]["name"] == "Backup bot"
+    assert payload["active"] == 1
+    assert [item["name"] for item in payload["items"]] == ["Main bot", "Backup bot"]
+    assert payload["items"][0]["owner_id_redacted"] == "88***78"
+    assert payload["items"][0]["secret"]["configured"] is True
     assert "bot_token" not in rendered
     assert "main-secret" not in rendered
     assert "backup-secret" not in rendered
@@ -455,9 +455,11 @@ async def test_validate_bot_updates_status_without_audit_log(session_factory, mo
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["success"] is True
+    assert payload["detail"]
     assert payload["status"] == "valid"
-    assert payload["telegram_bot_id"] == 7654321098
-    assert payload["telegram_username"] == "summary_relay_bot"
+    assert payload["bot_id"] == 7654321098
+    assert payload["username"] == "summary_relay_bot"
     assert "main-secret" not in response.text
     async with session_factory() as session:
         bot = await session.get(BotInstance, bot_id)

@@ -52,6 +52,13 @@ async def _get(app, path: str, *, token: str | None = None) -> httpx.Response:
         return await client.get(path, headers=headers)
 
 
+async def _post(app, path: str, *, token: str | None = ADMIN_TOKEN) -> httpx.Response:
+    headers = {"Authorization": f"Bearer {token}"} if token is not None else None
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        return await client.post(path, headers=headers)
+
+
 async def test_static_index_api_auth_and_spa_fallback_smoke(tmp_path, session_factory) -> None:
     static_dir = tmp_path / "dist"
     _write_dist(static_dir)
@@ -59,6 +66,7 @@ async def test_static_index_api_auth_and_spa_fallback_smoke(tmp_path, session_fa
 
     index_response = await _get(app, "/")
     api_response = await _get(app, "/api/dashboard")
+    missing_api_post_response = await _post(app, "/api/system/restart")
     fallback_response = await _get(app, "/groups/123")
     asset_response = await _get(app, "/assets/app.js")
 
@@ -73,6 +81,8 @@ async def test_static_index_api_auth_and_spa_fallback_smoke(tmp_path, session_fa
             "message": "认证失败",
         }
     }
+
+    assert missing_api_post_response.status_code == 404
 
     assert fallback_response.status_code == 200
     assert fallback_response.text == index_response.text

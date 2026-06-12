@@ -20,6 +20,9 @@ from summary_relay_bot.web.routes.bot import router as bot_router
 from summary_relay_bot.web.routes.dashboard import router as dashboard_router
 from summary_relay_bot.web.routes.groups import router as groups_router
 from summary_relay_bot.web.routes.llm_providers import router as llm_providers_router
+from summary_relay_bot.web.routes.private_relays import router as private_relays_router
+from summary_relay_bot.web.routes.system import router as system_router
+from summary_relay_bot.web.routes.summaries import router as summaries_router
 from summary_relay_bot.web.routes.summary_profiles import router as summary_profiles_router
 from summary_relay_bot.web.static import mount_webui_static
 
@@ -48,7 +51,10 @@ def create_web_app(
     api_router.include_router(llm_providers_router)
     api_router.include_router(summary_profiles_router)
     api_router.include_router(groups_router)
+    api_router.include_router(summaries_router)
+    api_router.include_router(private_relays_router)
     api_router.include_router(audit_logs_router)
+    api_router.include_router(system_router)
     app.include_router(api_router)
     mount_webui_static(app, static_dir=static_dir)
     return app

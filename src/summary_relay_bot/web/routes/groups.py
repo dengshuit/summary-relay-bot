@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from summary_relay_bot.db.models import (
     GroupChat,
     GroupSummarySettings,
+    LLMProvider,
     SummaryJob,
     SummaryProfile,
 )
@@ -106,7 +107,13 @@ def _settings_schema(group: GroupChat) -> GroupSummarySettingsSchema:
 def _effective_profile_schema(profile: SummaryProfile | None) -> EffectiveSummaryProfileSchema | None:
     if profile is None:
         return None
-    return EffectiveSummaryProfileSchema(id=profile.id, name=profile.name)
+    provider = profile.llm_provider
+    return EffectiveSummaryProfileSchema(
+        id=profile.id,
+        name=profile.name,
+        model=profile.model or (provider.default_model if provider is not None else None),
+        provider=provider.name if provider is not None else None,
+    )
 
 
 def _last_summary_schema(job: SummaryJob | None) -> GroupLastSummarySchema | None:
@@ -134,21 +141,37 @@ def _job_result_schema(result: SummaryJobResultView | None) -> SummaryJobResultS
     )
 
 
-def _job_schema(job: SummaryJobView | None) -> SummaryJobSchema | None:
+def _sequence_range(starting_sequence: int, cutoff_sequence: int | None) -> str | None:
+    if cutoff_sequence is None:
+        return None
+    return f"{starting_sequence + 1}-{cutoff_sequence}"
+
+
+def _job_schema(
+    job: SummaryJobView | None,
+    *,
+    provider_names: dict[int, str] | None = None,
+    profile_names: dict[int, str] | None = None,
+) -> SummaryJobSchema | None:
     if job is None:
         return None
+    provider_names = provider_names or {}
+    profile_names = profile_names or {}
     return SummaryJobSchema(
         id=job.id,
         group_id=job.group_id,
         chat_id=job.chat_id,
         trigger_type=job.trigger_type,
         status=job.status,
+        sequence_range=_sequence_range(job.starting_sequence, job.cutoff_sequence),
         starting_sequence=job.starting_sequence,
         cutoff_sequence=job.cutoff_sequence,
         prompt_version=job.prompt_version,
         llm_provider_id=job.llm_provider_id,
         summary_profile_id=job.summary_profile_id,
         model=job.model,
+        provider=provider_names.get(job.llm_provider_id) if job.llm_provider_id is not None else None,
+        profile_name=profile_names.get(job.summary_profile_id) if job.summary_profile_id is not None else None,
         created_at=job.created_at,
         started_at=job.started_at,
         finished_at=job.finished_at,
@@ -203,6 +226,27 @@ async def _effective_profile(session: AsyncSession, group: GroupChat) -> Summary
     return await default_summary_profile(session)
 
 
+async def _display_maps_for_jobs(
+    session: AsyncSession,
+    jobs: list[SummaryJobView],
+) -> tuple[dict[int, str], dict[int, str]]:
+    provider_ids = {job.llm_provider_id for job in jobs if job.llm_provider_id is not None}
+    profile_ids = {job.summary_profile_id for job in jobs if job.summary_profile_id is not None}
+    provider_names: dict[int, str] = {}
+    profile_names: dict[int, str] = {}
+    if provider_ids:
+        rows = await session.execute(
+            select(LLMProvider.id, LLMProvider.name).where(LLMProvider.id.in_(provider_ids))
+        )
+        provider_names = {provider_id: name for provider_id, name in rows}
+    if profile_ids:
+        rows = await session.execute(
+            select(SummaryProfile.id, SummaryProfile.name).where(SummaryProfile.id.in_(profile_ids))
+        )
+        profile_names = {profile_id: name for profile_id, name in rows}
+    return provider_names, profile_names
+
+
 async def _group_list_item_schema(session: AsyncSession, group: GroupChat) -> GroupListItemSchema:
     recent_jobs = await recent_summary_jobs_for_group(session, group_id=group.id, limit=1)
     return GroupListItemSchema(
@@ -223,7 +267,9 @@ async def _get_group(session: AsyncSession, group_id: int) -> GroupChat | None:
         GroupChat,
         group_id,
         options=[
-            selectinload(GroupChat.summary_settings).selectinload(GroupSummarySettings.summary_profile),
+            selectinload(GroupChat.summary_settings)
+            .selectinload(GroupSummarySettings.summary_profile)
+            .selectinload(SummaryProfile.llm_provider),
             selectinload(GroupChat.summary_state),
         ],
     )
@@ -241,6 +287,9 @@ def _groups_statement_with_filters(
         select(GroupChat)
         .options(
             selectinload(GroupChat.summary_settings).selectinload(GroupSummarySettings.summary_profile),
+            selectinload(GroupChat.summary_settings)
+            .selectinload(GroupSummarySettings.summary_profile)
+            .selectinload(SummaryProfile.llm_provider),
             selectinload(GroupChat.summary_state),
         )
         .outerjoin(GroupSummarySettings, GroupSummarySettings.group_id == GroupChat.id)
@@ -338,6 +387,12 @@ async def get_group(
         item = await _group_list_item_schema(session, group)
         active_job = await get_active_summary_job(session, group_id=group.id)
         recent_jobs = await recent_summary_jobs_for_group(session, group_id=group.id, limit=10)
+        job_views = [
+            job_view
+            for job in [active_job, *recent_jobs]
+            if (job_view := _job_view_from_model(job)) is not None
+        ]
+        provider_names, profile_names = await _display_maps_for_jobs(session, job_views)
         state = group.summary_state
         return GroupDetailSchema(
             **_model_data(item),
@@ -349,22 +404,33 @@ async def get_group(
                 if state is not None
                 else None
             ),
-            active_job=_job_schema(_job_view_from_model(active_job)),
+            active_job=_job_schema(
+                _job_view_from_model(active_job),
+                provider_names=provider_names,
+                profile_names=profile_names,
+            ),
             recent_jobs=[
                 job_schema
                 for job in recent_jobs
-                if (job_schema := _job_schema(_job_view_from_model(job))) is not None
+                if (
+                    job_schema := _job_schema(
+                        _job_view_from_model(job),
+                        provider_names=provider_names,
+                        profile_names=profile_names,
+                    )
+                )
+                is not None
             ],
         )
 
 
-@router.patch("/{group_id}/summary-settings", response_model=GroupSummarySettingsSchema)
+@router.patch("/{group_id}/summary-settings", response_model=GroupDetailSchema)
 async def patch_group_summary_settings(
     group_id: int,
     payload: GroupSummarySettingsUpdateRequest,
     session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
     actor: Annotated[str, Depends(get_actor)],
-) -> GroupSummarySettingsSchema | JSONResponse:
+) -> GroupDetailSchema | JSONResponse:
     try:
         async with session_scope(session_factory) as session:
             group = await _get_group(session, group_id)
@@ -386,6 +452,22 @@ async def patch_group_summary_settings(
                 timezone=payload.timezone,
                 actor=actor,
             )
+            await session.refresh(group)
+            group = await _get_group(session, group_id)
+            if group is None:
+                raise RuntimeError("updated group unexpectedly missing")
+            item = await _group_list_item_schema(session, group)
+            active_job = await get_active_summary_job(session, group_id=group.id)
+            recent_jobs = await recent_summary_jobs_for_group(session, group_id=group.id, limit=10)
+            provider_names, profile_names = await _display_maps_for_jobs(
+                session,
+                [
+                    job_view
+                    for job in [active_job, *recent_jobs]
+                    if (job_view := _job_view_from_model(job)) is not None
+                ],
+            )
+            state = group.summary_state
     except SummaryProfileNotFoundError:
         return api_error_response(
             status_code=404,
@@ -399,11 +481,33 @@ async def patch_group_summary_settings(
             code="validation_error",
             message=message,
         )
-    return GroupSummarySettingsSchema(
-        enabled=settings.enabled,
-        interval_minutes=settings.interval_minutes,
-        summary_profile_id=settings.summary_profile_id,
-        timezone=settings.timezone,
+    return GroupDetailSchema(
+        **_model_data(item),
+        summary_state=(
+            GroupSummaryStateSchema(
+                last_summary_sequence=state.last_summary_sequence,
+                last_summary_at=state.last_summary_at,
+            )
+            if state is not None
+            else None
+        ),
+        active_job=_job_schema(
+            _job_view_from_model(active_job),
+            provider_names=provider_names,
+            profile_names=profile_names,
+        ),
+        recent_jobs=[
+            job_schema
+            for job in recent_jobs
+            if (
+                job_schema := _job_schema(
+                    _job_view_from_model(job),
+                    provider_names=provider_names,
+                    profile_names=profile_names,
+                )
+            )
+            is not None
+        ],
     )
 
 
@@ -460,7 +564,9 @@ async def post_group_summary_job(
     )
     poll_url = f"/api/groups/{group_id}/summary-jobs/{job.id}"
     response.status_code = 202
-    job_schema = _job_schema(job)
+    async with session_factory() as session:
+        provider_names, profile_names = await _display_maps_for_jobs(session, [job])
+    job_schema = _job_schema(job, provider_names=provider_names, profile_names=profile_names)
     if job_schema is None:
         raise RuntimeError("created summary job unexpectedly missing")
     return TriggerSummaryJobResponse(job=job_schema, poll_url=poll_url)
@@ -488,7 +594,8 @@ async def get_group_summary_job(
                 code="not_found",
                 message="summary job not found",
             )
-    job_schema = _job_schema(job)
+        provider_names, profile_names = await _display_maps_for_jobs(session, [job])
+        job_schema = _job_schema(job, provider_names=provider_names, profile_names=profile_names)
     if job_schema is None:
         raise RuntimeError("summary job unexpectedly missing")
     return job_schema

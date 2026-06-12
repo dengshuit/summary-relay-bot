@@ -7,7 +7,7 @@ from summary_relay_bot.config import BootstrapConfig
 from summary_relay_bot.db.models import AuditLog, LLMProvider
 from summary_relay_bot.db.session import session_scope
 from summary_relay_bot.services import runtime_config
-from summary_relay_bot.services.runtime_config import create_llm_provider
+from summary_relay_bot.services.runtime_config import create_llm_provider, create_summary_profile
 from summary_relay_bot.services.secrets import SecretService
 from summary_relay_bot.web.app import create_web_app
 
@@ -81,10 +81,11 @@ async def test_get_llm_providers_returns_redacted_items_and_filters(session_fact
     assert response.status_code == 200
     payload = response.json()
     rendered = response.text + filtered.text
-    assert [item["name"] for item in payload["items"]] == ["Primary Claude", "Backup OpenAI"]
-    assert payload["items"][0]["secret"] == {"configured": True, "updated_at": None}
+    assert [item["name"] for item in payload] == ["Primary Claude", "Backup OpenAI"]
+    assert payload[0]["secret"] == {"configured": True, "updated_at": None}
+    assert payload[0]["models"] == ["claude-default"]
     assert filtered.status_code == 200
-    assert [item["name"] for item in filtered.json()["items"]] == ["Primary Claude"]
+    assert [item["name"] for item in filtered.json()] == ["Primary Claude"]
     assert "api_key" not in rendered
     assert "llm-primary-secret" not in rendered
     assert "llm-backup-secret" not in rendered
@@ -191,6 +192,7 @@ async def test_post_llm_provider_validates_parameters_and_redacts_audit(session_
             "provider_type": "anthropic",
             "api_key": "llm-created-secret",
             "default_model": "claude-default",
+            "models": ["claude-default", "claude-3-5-sonnet-latest"],
             "timeout_seconds": 30,
             "max_retries": 2,
             "enabled": True,
@@ -202,6 +204,7 @@ async def test_post_llm_provider_validates_parameters_and_redacts_audit(session_
     assert "llm-invalid-secret" not in invalid.text
     assert valid.status_code == 200
     assert valid.json()["secret"]["configured"] is True
+    assert valid.json()["models"] == ["claude-default", "claude-3-5-sonnet-latest"]
     assert "llm-created-secret" not in valid.text
     async with session_factory() as session:
         audit_logs = (await session.scalars(select(AuditLog))).all()
@@ -259,6 +262,8 @@ async def test_llm_provider_test_updates_status_without_audit_or_secret_leak(
     )
 
     assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert response.json()["detail"]
     assert response.json()["status"] == "valid"
     assert "llm-test-secret" not in response.text
     async with session_factory() as session:
@@ -288,12 +293,122 @@ async def test_llm_provider_api_requires_admin_token(session_factory) -> None:
     )
     patch_response = await _request(app, "PATCH", "/api/llm-providers/1", token=None, json={})
     test_response = await _request(app, "POST", "/api/llm-providers/1/test", token=None)
+    models_response = await _request(app, "GET", "/api/llm-providers/1/models", token=None)
+    fetch_models_response = await _request(
+        app,
+        "POST",
+        "/api/llm-providers/fetch-models",
+        token=None,
+        json={"provider_type": "anthropic"},
+    )
+    delete_response = await _request(app, "DELETE", "/api/llm-providers/1", token=None)
 
     assert get_response.status_code == 401
     assert post_response.status_code == 401
     assert patch_response.status_code == 401
     assert test_response.status_code == 401
+    assert models_response.status_code == 401
+    assert fetch_models_response.status_code == 401
+    assert delete_response.status_code == 401
     assert get_response.json() == post_response.json()
     assert get_response.json() == patch_response.json()
     assert get_response.json() == test_response.json()
+    assert get_response.json() == models_response.json()
+    assert get_response.json() == fetch_models_response.json()
+    assert get_response.json() == delete_response.json()
     assert "llm-secret" not in post_response.text
+
+
+async def test_provider_models_can_be_replaced_and_default_must_be_included(session_factory) -> None:
+    bootstrap_config = _bootstrap_config()
+    secret_service = SecretService(bootstrap_config.settings_encryption_key)
+    async with session_scope(session_factory) as session:
+        provider = await create_llm_provider(
+            session,
+            secret_service=secret_service,
+            name="Primary Claude",
+            provider_type="anthropic",
+            api_key="llm-model-secret",
+            default_model="claude-default",
+        )
+        provider_id = provider.id
+
+    app = _web_app(session_factory, bootstrap_config)
+    invalid = await _request(
+        app,
+        "PATCH",
+        f"/api/llm-providers/{provider_id}",
+        json={"models": ["claude-other"]},
+    )
+    valid = await _request(
+        app,
+        "PATCH",
+        f"/api/llm-providers/{provider_id}",
+        json={"models": ["claude-default", "claude-other"]},
+    )
+    models = await _request(app, "GET", f"/api/llm-providers/{provider_id}/models")
+
+    assert invalid.status_code == 400
+    assert invalid.json()["error"]["code"] == "validation_error"
+    assert valid.status_code == 200
+    assert valid.json()["models"] == ["claude-default", "claude-other"]
+    assert models.status_code == 200
+    assert models.json() == {"success": True, "models": ["claude-default", "claude-other"]}
+    rendered = invalid.text + valid.text + models.text
+    assert "llm-model-secret" not in rendered
+
+
+async def test_fetch_models_anthropic_returns_presets_without_leaking_temporary_key(session_factory) -> None:
+    response = await _request(
+        _web_app(session_factory, _bootstrap_config()),
+        "POST",
+        "/api/llm-providers/fetch-models",
+        json={"provider_type": "anthropic", "api_key": "llm-temporary-secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert response.json()["source"] == "preset"
+    assert response.json()["models"]
+    assert "llm-temporary-secret" not in response.text
+
+
+async def test_delete_llm_provider_rejects_referenced_and_audits_success(session_factory) -> None:
+    bootstrap_config = _bootstrap_config()
+    secret_service = SecretService(bootstrap_config.settings_encryption_key)
+    async with session_scope(session_factory) as session:
+        used = await create_llm_provider(
+            session,
+            secret_service=secret_service,
+            name="Used provider",
+            provider_type="anthropic",
+            api_key="llm-used-secret",
+            default_model="claude-default",
+        )
+        unused = await create_llm_provider(
+            session,
+            secret_service=secret_service,
+            name="Unused provider",
+            provider_type="anthropic",
+            api_key="llm-unused-secret",
+            default_model="claude-default",
+        )
+        await create_summary_profile(session, name="Profile", llm_provider=used)
+        used_id = used.id
+        unused_id = unused.id
+
+    app = _web_app(session_factory, bootstrap_config)
+    conflict = await _request(app, "DELETE", f"/api/llm-providers/{used_id}")
+    deleted = await _request(app, "DELETE", f"/api/llm-providers/{unused_id}")
+
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "conflict"
+    assert deleted.status_code == 200
+    assert deleted.json() == {"success": True}
+    rendered = conflict.text + deleted.text
+    assert "llm-used-secret" not in rendered
+    assert "llm-unused-secret" not in rendered
+    async with session_factory() as session:
+        assert await session.get(LLMProvider, unused_id) is None
+        audit_actions = [row.action for row in (await session.scalars(select(AuditLog))).all()]
+    assert "delete_llm_provider" in audit_actions

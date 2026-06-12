@@ -1,18 +1,20 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import selectinload
 
 from summary_relay_bot.db.models import (
     AuditLog,
     BotInstance,
     GroupChat,
     GroupSummarySettings,
+    LLMProvider,
     SummaryJob,
     SummaryProfile,
     utcnow,
@@ -58,14 +60,20 @@ def _telegram_runtime_schema(
 def _bot_schema(bot: BotInstance | None) -> DashboardBotSchema | None:
     if bot is None:
         return None
+    identity = None
+    if bot.telegram_username:
+        identity = f"@{bot.telegram_username}"
+        if bot.telegram_bot_id is not None:
+            identity = f"{identity} (ID: {bot.telegram_bot_id})"
+    elif bot.telegram_bot_id is not None:
+        identity = f"ID: {bot.telegram_bot_id}"
     return DashboardBotSchema(
         id=bot.id,
         name=bot.name,
         enabled=bot.enabled,
         status=bot.status,
         needs_restart=bot.needs_restart,
-        telegram_bot_id=bot.telegram_bot_id,
-        telegram_username=bot.telegram_username,
+        telegram_identity=identity,
         last_validated_at=bot.last_validated_at,
     )
 
@@ -73,13 +81,21 @@ def _bot_schema(bot: BotInstance | None) -> DashboardBotSchema | None:
 def _default_profile_schema(profile: SummaryProfile | None) -> DefaultProfileSchema | None:
     if profile is None:
         return None
+    provider = profile.llm_provider
     return DefaultProfileSchema(
         id=profile.id,
         name=profile.name,
         enabled=profile.enabled,
-        llm_provider_id=profile.llm_provider_id,
+        provider_id=profile.llm_provider_id,
+        provider_name=provider.name if provider is not None else "",
         prompt_version=profile.prompt_version,
     )
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 async def _summary_24h(session: AsyncSession) -> Summary24hSchema:
@@ -91,10 +107,37 @@ async def _summary_24h(session: AsyncSession) -> Summary24hSchema:
     )
     counts = {status: int(count) for status, count in rows}
     total = sum(counts.values())
+    trend_rows = await session.execute(
+        select(SummaryJob.created_at).where(SummaryJob.created_at >= window_start)
+    )
+    buckets = [0] * 6
+    now = utcnow()
+    for (created_at,) in trend_rows:
+        hours_ago = max(0, min(23, int((now - _as_utc(created_at)).total_seconds() // 3600)))
+        bucket = min(5, hours_ago // 4)
+        buckets[5 - bucket] += 1
+    trend = [
+        {"time": f"{(index - 5) * 4}h", "count": count}
+        for index, count in enumerate(buckets)
+    ]
+    distribution_rows = await session.execute(
+        select(GroupChat.title, GroupChat.chat_id, func.count(SummaryJob.id))
+        .join(GroupChat, GroupChat.id == SummaryJob.group_id)
+        .where(SummaryJob.created_at >= window_start)
+        .group_by(GroupChat.id)
+        .order_by(func.count(SummaryJob.id).desc(), GroupChat.id)
+        .limit(8)
+    )
+    group_distribution = [
+        {"name": title or str(chat_id), "value": int(count)}
+        for title, chat_id, count in distribution_rows
+    ]
     return Summary24hSchema(
         total=total,
         succeeded=counts.get("succeeded", 0),
         failed=counts.get("failed", 0),
+        trend=trend,
+        group_distribution=group_distribution,
     )
 
 
@@ -151,6 +194,7 @@ async def get_dashboard(
         )
         default_profile = await session.scalar(
             select(SummaryProfile)
+            .options(selectinload(SummaryProfile.llm_provider))
             .where(SummaryProfile.is_default.is_(True))
             .order_by(SummaryProfile.id)
             .limit(1)

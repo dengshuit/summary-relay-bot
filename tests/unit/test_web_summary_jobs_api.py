@@ -131,6 +131,9 @@ async def test_manual_summary_job_returns_202_and_can_be_polled_to_terminal_stat
     poll = await _request(app, "GET", payload["poll_url"])
     assert poll.status_code == 200
     assert poll.json()["status"] == "succeeded"
+    assert poll.json()["provider"] == "Primary Claude"
+    assert poll.json()["profile_name"] == "Default profile"
+    assert poll.json()["model"] == "claude-default"
     rendered = trigger.text + poll.text
     assert "llm-job-secret" not in rendered
     assert "raw text should not leave job api" not in rendered

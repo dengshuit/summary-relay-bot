@@ -219,6 +219,7 @@ class LLMProvider(Base):
     base_url: Mapped[str | None] = mapped_column(String(1024))
     api_key_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     default_model: Mapped[str] = mapped_column(String(255), nullable=False)
+    models: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
