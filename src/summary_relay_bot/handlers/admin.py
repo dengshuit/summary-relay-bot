@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from summary_relay_bot.db.session import session_scope
 from summary_relay_bot.services.secrets import SecretService
-from summary_relay_bot.services.summary_jobs import run_manual_summary
+from summary_relay_bot.services.summary_jobs import SummaryReloadGate, run_manual_summary
 from summary_relay_bot.telegram.guards import OwnerPrivateFilter, PrivateNonOwnerFilter, is_owner_user
 
 ADMIN_HELP = (
@@ -72,6 +72,7 @@ async def handle_manual_summary(
     owner_id: int,
     session_factory: async_sessionmaker[AsyncSession],
     secret_service: SecretService,
+    reload_gate: SummaryReloadGate | None = None,
 ) -> None:
     text = getattr(message, "text", "") or ""
     parts = text.split(maxsplit=1)
@@ -87,5 +88,6 @@ async def handle_manual_summary(
             owner_id=owner_id,
             secret_service=secret_service,
             requested_chat_id=chat_id,
+            reload_gate=reload_gate,
         )
     await message.answer(report)

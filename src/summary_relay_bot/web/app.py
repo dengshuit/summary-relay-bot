@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from summary_relay_bot.config import BootstrapConfig
 from summary_relay_bot.services.secrets import SecretService
+from summary_relay_bot.services.telegram_runtime import TelegramRuntimeManager
 from summary_relay_bot.web.auth import require_admin_token
 from summary_relay_bot.web.errors import (
     WebUnauthorizedError,
@@ -29,6 +30,7 @@ def create_web_app(
     session_factory: async_sessionmaker[AsyncSession],
     secret_service: SecretService,
     telegram_startup: object,
+    telegram_runtime: TelegramRuntimeManager | None = None,
     static_dir: Path | str | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Summary Relay Bot Web API")
@@ -36,6 +38,7 @@ def create_web_app(
     app.state.session_factory = session_factory
     app.state.secret_service = secret_service
     app.state.telegram_startup = telegram_startup
+    app.state.telegram_runtime = telegram_runtime
     app.add_exception_handler(WebUnauthorizedError, unauthorized_exception_handler)
     app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
 

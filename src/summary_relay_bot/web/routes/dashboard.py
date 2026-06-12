@@ -17,7 +17,8 @@ from summary_relay_bot.db.models import (
     SummaryProfile,
     utcnow,
 )
-from summary_relay_bot.web.deps import get_session_factory, get_telegram_startup
+from summary_relay_bot.services.telegram_runtime import TelegramRuntimeManager
+from summary_relay_bot.web.deps import get_session_factory, get_telegram_runtime, get_telegram_startup
 from summary_relay_bot.web.schemas import (
     DashboardBotSchema,
     DashboardResponse,
@@ -42,6 +43,16 @@ def _telegram_startup_schema(telegram_startup: object) -> TelegramStartupSchema:
         status=str(getattr(telegram_startup, "status", "unknown")),
         detail=getattr(telegram_startup, "detail", None),
     )
+
+
+def _telegram_runtime_schema(
+    telegram_startup: object,
+    telegram_runtime: TelegramRuntimeManager | None,
+) -> TelegramStartupSchema:
+    if telegram_runtime is None:
+        return _telegram_startup_schema(telegram_startup)
+    state = telegram_runtime.state_snapshot()
+    return TelegramStartupSchema(status=state.status, detail=state.detail)
 
 
 def _bot_schema(bot: BotInstance | None) -> DashboardBotSchema | None:
@@ -129,6 +140,7 @@ async def _restart_pending(session: AsyncSession) -> list[str]:
 async def get_dashboard(
     session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
     telegram_startup: Annotated[object, Depends(get_telegram_startup)],
+    telegram_runtime: Annotated[TelegramRuntimeManager | None, Depends(get_telegram_runtime)],
 ) -> DashboardResponse:
     async with session_factory() as session:
         bot = await session.scalar(
@@ -144,7 +156,7 @@ async def get_dashboard(
             .limit(1)
         )
         return DashboardResponse(
-            telegram_startup=_telegram_startup_schema(telegram_startup),
+            telegram_startup=_telegram_runtime_schema(telegram_startup, telegram_runtime),
             bot=_bot_schema(bot),
             groups=await _group_counts(session),
             default_profile=_default_profile_schema(default_profile),

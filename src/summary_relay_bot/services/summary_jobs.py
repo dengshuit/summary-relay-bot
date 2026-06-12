@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, AsyncIterator
 
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -51,6 +52,46 @@ class SummaryJobConflictError(ValueError):
     def __init__(self, active_job_id: int) -> None:
         super().__init__("summary job already active")
         self.active_job_id = active_job_id
+
+
+class BotRuntimeReloadInProgressError(RuntimeError):
+    pass
+
+
+class SummaryReloadGate:
+    def __init__(self) -> None:
+        self._active_bot_delivery_summaries = 0
+        self._runtime_reload_active = False
+        self._condition = asyncio.Condition()
+
+    @asynccontextmanager
+    async def enter_bot_delivery_summary(self) -> AsyncIterator[None]:
+        async with self._condition:
+            if self._runtime_reload_active:
+                raise BotRuntimeReloadInProgressError("bot runtime is reloading")
+            self._active_bot_delivery_summaries += 1
+        try:
+            yield
+        finally:
+            async with self._condition:
+                self._active_bot_delivery_summaries -= 1
+                self._condition.notify_all()
+
+    async def has_active_bot_delivery_summary(self) -> bool:
+        async with self._condition:
+            return self._active_bot_delivery_summaries > 0
+
+    async def try_begin_runtime_reload(self) -> bool:
+        async with self._condition:
+            if self._active_bot_delivery_summaries > 0 or self._runtime_reload_active:
+                return False
+            self._runtime_reload_active = True
+            return True
+
+    async def finish_runtime_reload(self) -> None:
+        async with self._condition:
+            self._runtime_reload_active = False
+            self._condition.notify_all()
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +170,7 @@ async def run_manual_summary(
     owner_id: int,
     secret_service: SecretService,
     requested_chat_id: int | None = None,
+    reload_gate: SummaryReloadGate | None = None,
 ) -> str:
     if requested_chat_id is not None:
         group = await get_group_by_chat_id(session, requested_chat_id)
@@ -152,6 +194,7 @@ async def run_manual_summary(
                 group=group,
                 trigger_type="manual",
                 notify_no_messages=True,
+                reload_gate=reload_gate,
             )
         )
     return "\n".join(f"{result.chat_id} [{result.status}]: {result.message}" for result in results)
@@ -164,6 +207,7 @@ async def run_scheduled_summary(
     secret_service: SecretService,
     owner_id: int,
     chat_id: int,
+    reload_gate: SummaryReloadGate | None = None,
 ) -> SummaryRunResult:
     async with session_scope(session_factory) as session:
         group = await get_group_by_chat_id(session, chat_id)
@@ -178,10 +222,51 @@ async def run_scheduled_summary(
             group=group,
             trigger_type="scheduled",
             notify_no_messages=False,
+            reload_gate=reload_gate,
         )
 
 
 async def run_summary_for_group(
+    *,
+    session: AsyncSession,
+    bot: Bot,
+    owner_id: int,
+    secret_service: SecretService,
+    group: GroupChat,
+    trigger_type: str,
+    notify_no_messages: bool,
+    reload_gate: SummaryReloadGate | None = None,
+) -> SummaryRunResult:
+    if reload_gate is not None:
+        try:
+            async with reload_gate.enter_bot_delivery_summary():
+                return await _run_summary_for_group(
+                    session=session,
+                    bot=bot,
+                    owner_id=owner_id,
+                    secret_service=secret_service,
+                    group=group,
+                    trigger_type=trigger_type,
+                    notify_no_messages=notify_no_messages,
+                )
+        except BotRuntimeReloadInProgressError:
+            return SummaryRunResult(
+                chat_id=group.chat_id,
+                status="blocked",
+                message="bot runtime is reloading",
+            )
+    return await _run_summary_for_group(
+        session=session,
+        bot=bot,
+        owner_id=owner_id,
+        secret_service=secret_service,
+        group=group,
+        trigger_type=trigger_type,
+        notify_no_messages=notify_no_messages,
+    )
+
+
+async def _run_summary_for_group(
     *,
     session: AsyncSession,
     bot: Bot,

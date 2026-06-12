@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from summary_relay_bot.config import BootstrapConfig
 from summary_relay_bot.services.secrets import SecretService
+from summary_relay_bot.services.telegram_runtime import TelegramRuntimeManager
 
 
 WEBUI_ACTOR = "webui_admin"
@@ -33,6 +34,10 @@ def get_secret_service(request: Request) -> SecretService:
 
 def get_telegram_startup(request: Request) -> object:
     return _state_value(request, "telegram_startup")
+
+
+def get_telegram_runtime(request: Request) -> TelegramRuntimeManager | None:
+    return cast(TelegramRuntimeManager | None, _state_value(request, "telegram_runtime"))
 
 
 def get_actor() -> str:

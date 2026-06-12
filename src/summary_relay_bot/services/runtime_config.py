@@ -6,7 +6,7 @@ from typing import Any
 
 from aiogram.exceptions import TelegramAPIError, TelegramUnauthorizedError
 from aiogram.utils.token import TokenValidationError
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -341,6 +341,10 @@ async def get_bot_instance(session: AsyncSession, bot_instance_id: int) -> BotIn
     return bot_instance
 
 
+async def get_bot_instance_view(session: AsyncSession, bot_instance_id: int) -> BotInstanceView:
+    return _bot_instance_view(await get_bot_instance(session, bot_instance_id))
+
+
 async def load_bot_runtime_config(
     session: AsyncSession,
     *,
@@ -356,6 +360,35 @@ async def load_bot_runtime_config(
         name=bot_instance.name,
         needs_restart=bot_instance.needs_restart,
     )
+
+
+async def clear_bot_restart_flags(
+    session: AsyncSession,
+    *,
+    bot_instance_ids: set[int] | None = None,
+) -> None:
+    statement = update(BotInstance).where(BotInstance.needs_restart.is_(True))
+    if bot_instance_ids is not None:
+        if not bot_instance_ids:
+            return
+        statement = statement.where(BotInstance.id.in_(bot_instance_ids))
+    await session.execute(statement.values(needs_restart=False, updated_at=utcnow()))
+    await session.flush()
+
+
+async def mark_bot_restart_flags(
+    session: AsyncSession,
+    *,
+    bot_instance_ids: set[int],
+) -> None:
+    if not bot_instance_ids:
+        return
+    await session.execute(
+        update(BotInstance)
+        .where(BotInstance.id.in_(bot_instance_ids))
+        .values(needs_restart=True, updated_at=utcnow())
+    )
+    await session.flush()
 
 
 async def fetch_bot_identity(bot_token: str) -> BotIdentity:

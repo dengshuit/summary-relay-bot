@@ -12,6 +12,7 @@ from summary_relay_bot.db.session import session_scope
 from summary_relay_bot.services.group_settings import enabled_group_settings
 from summary_relay_bot.services.retention import cleanup_raw_update_payloads
 from summary_relay_bot.services.secrets import SecretService
+from summary_relay_bot.services.summary_jobs import SummaryReloadGate
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class BotScheduler:
     session_factory: async_sessionmaker[AsyncSession]
     secret_service: SecretService
     owner_id: int
+    reload_gate: SummaryReloadGate | None = None
     scheduler: AsyncIOScheduler = field(init=False)
 
     def __post_init__(self) -> None:
@@ -65,6 +67,7 @@ class BotScheduler:
                 "secret_service": self.secret_service,
                 "owner_id": self.owner_id,
                 "chat_id": chat_id,
+                "reload_gate": self.reload_gate,
             },
         )
 

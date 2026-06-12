@@ -10,7 +10,7 @@ from summary_relay_bot.handlers.admin import handle_manual_summary
 from summary_relay_bot.services import summary_jobs as summary_jobs_module
 from summary_relay_bot.services.runtime_config import create_llm_provider, create_summary_profile
 from summary_relay_bot.services.secrets import SecretService
-from summary_relay_bot.services.summary_jobs import run_summary_for_group
+from summary_relay_bot.services.summary_jobs import SummaryReloadGate, run_summary_for_group
 
 
 class FakeBot:
@@ -171,3 +171,40 @@ async def test_runtime_config_failure_marks_summary_job_failed(app_config, db_se
     assert job.llm_provider_id is None
     assert job.summary_profile_id is None
     assert job.model is None
+
+
+async def test_summary_reload_gate_tracks_active_summary_and_releases_after_exception() -> None:
+    gate = SummaryReloadGate()
+
+    assert await gate.has_active_bot_delivery_summary() is False
+    try:
+        async with gate.enter_bot_delivery_summary():
+            assert await gate.has_active_bot_delivery_summary() is True
+            raise RuntimeError("summary failed")
+    except RuntimeError:
+        pass
+
+    assert await gate.has_active_bot_delivery_summary() is False
+
+
+async def test_summary_for_group_is_blocked_while_runtime_reload_active(db_session) -> None:
+    gate = SummaryReloadGate()
+    group = await upsert_group(db_session, chat_id=-400, chat_type="group", title="Group")
+    assert await gate.try_begin_runtime_reload() is True
+    try:
+        result = await run_summary_for_group(
+            session=db_session,
+            bot=FakeBot(),
+            owner_id=1001,
+            secret_service=SecretService(SecretService.generate_key()),
+            group=group,
+            trigger_type="manual",
+            notify_no_messages=True,
+            reload_gate=gate,
+        )
+    finally:
+        await gate.finish_runtime_reload()
+
+    assert result.status == "blocked"
+    assert result.message == "bot runtime is reloading"
+    assert (await db_session.scalars(select(SummaryJob))).all() == []

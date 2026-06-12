@@ -23,6 +23,13 @@ from summary_relay_bot.main import (
 )
 from summary_relay_bot.services.runtime_config import create_bot_instance
 from summary_relay_bot.services.secrets import SecretService
+from summary_relay_bot.services.summary_jobs import SummaryReloadGate
+from summary_relay_bot.services.telegram_runtime import (
+    TELEGRAM_RUNTIME_NO_ENABLED_BOT,
+    TELEGRAM_RUNTIME_RUNNING,
+    RuntimeBusyError,
+    TelegramRuntimeManager,
+)
 
 
 class FakeTelegramSession:
@@ -184,7 +191,7 @@ async def test_build_runtime_app_without_enabled_bot_keeps_polling_resources_unb
     try:
         assert runtime_app.telegram_startup.status == TELEGRAM_STARTUP_NO_ENABLED_BOT
         assert runtime_app.telegram_startup.should_start_polling is False
-        assert runtime_app.resources is None
+        assert runtime_app.telegram_runtime.resources is None
         assert runtime_app.safe_dict()["polling_resources_ready"] is False
         assert "admin-secret" not in str(runtime_app.safe_dict())
     finally:
@@ -194,9 +201,13 @@ async def test_build_runtime_app_without_enabled_bot_keeps_polling_resources_unb
 async def test_run_runtime_app_without_polling_starts_web_api_and_disposes_engine(monkeypatch) -> None:
     observed: dict[str, object] = {}
     engine = FakeEngine()
+    telegram_runtime = SimpleNamespace(
+        start_from_db=lambda: _record_async(observed, "started", True),
+        stop=lambda: _record_async(observed, "stopped", True),
+    )
     runtime_app = SimpleNamespace(
-        resources=None,
         engine=engine,
+        telegram_runtime=telegram_runtime,
     )
 
     async def fake_start_web_api(observed_runtime_app) -> None:
@@ -207,35 +218,42 @@ async def test_run_runtime_app_without_polling_starts_web_api_and_disposes_engin
     await run_runtime_app(runtime_app)
 
     assert observed["web_runtime_app"] is runtime_app
+    assert observed["started"] is True
+    assert observed["stopped"] is True
     assert engine.disposed is True
 
 
-async def test_run_runtime_app_with_polling_runs_web_api_and_polling_in_parallel(monkeypatch) -> None:
+async def test_run_runtime_app_starts_manager_then_web_api(monkeypatch) -> None:
     observed: dict[str, object] = {}
-    web_started = asyncio.Event()
     engine = FakeEngine()
-    resources = SimpleNamespace(engine=engine)
+    start_complete = asyncio.Event()
+
+    async def fake_start_runtime() -> None:
+        observed["runtime_started_before_web"] = "web_runtime_app" not in observed
+        start_complete.set()
+
+    async def fake_stop_runtime() -> None:
+        observed["runtime_stopped"] = True
+
     runtime_app = SimpleNamespace(
-        resources=resources,
         engine=engine,
+        telegram_runtime=SimpleNamespace(
+            start_from_db=fake_start_runtime,
+            stop=fake_stop_runtime,
+        ),
     )
 
     async def fake_start_web_api(observed_runtime_app) -> None:
+        await start_complete.wait()
         observed["web_runtime_app"] = observed_runtime_app
-        web_started.set()
-        await asyncio.Event().wait()
-
-    async def fake_start_polling(observed_resources) -> None:
-        await web_started.wait()
-        observed["polling_resources"] = observed_resources
 
     monkeypatch.setattr("summary_relay_bot.main.start_web_api", fake_start_web_api)
-    monkeypatch.setattr("summary_relay_bot.main.start_polling", fake_start_polling)
 
     await run_runtime_app(runtime_app)
 
     assert observed["web_runtime_app"] is runtime_app
-    assert observed["polling_resources"] is resources
+    assert observed["runtime_started_before_web"] is True
+    assert observed["runtime_stopped"] is True
     assert engine.disposed is True
 
 
@@ -252,7 +270,7 @@ async def test_build_runtime_app_uses_database_token_and_owner_for_bot_and_handl
             session,
             secret_service=service,
             name="Main bot",
-            bot_token="123456:runtime-secret-token",
+            bot_token="123456:AA-runtime-secret-token",
             owner_id=3003,
             enabled=True,
         )
@@ -268,8 +286,15 @@ async def test_build_runtime_app_uses_database_token_and_owner_for_bot_and_handl
     def fake_register_routers(dispatcher, config, *, owner_id: int) -> None:
         observed["owner_id_for_handlers"] = owner_id
 
+    async def fake_start_polling(resources, *, ready_event=None) -> None:
+        observed["polling_owner_id"] = resources.owner_id
+        if ready_event is not None:
+            ready_event.set()
+        await asyncio.Event().wait()
+
     monkeypatch.setattr("summary_relay_bot.main.create_bot", fake_create_bot)
     monkeypatch.setattr("summary_relay_bot.main.register_routers", fake_register_routers)
+    monkeypatch.setattr("summary_relay_bot.main.start_polling", fake_start_polling)
 
     bootstrap_config = BootstrapConfig(
         database_url=database_url,
@@ -279,16 +304,23 @@ async def test_build_runtime_app_uses_database_token_and_owner_for_bot_and_handl
     runtime_app = await build_runtime_app(bootstrap_config, env={})
     try:
         assert runtime_app.telegram_startup.status == TELEGRAM_STARTUP_READY
-        assert runtime_app.resources is not None
+        await runtime_app.telegram_runtime.start_from_db()
         assert observed == {
-            "bot_token": "123456:runtime-secret-token",
+            "bot_token": "123456:AA-runtime-secret-token",
             "owner_id_for_bot": 3003,
             "owner_id_for_handlers": 3003,
+            "polling_owner_id": 3003,
         }
-        assert runtime_app.resources.owner_id == 3003
-        assert runtime_app.resources.bot_runtime_config is not None
-        assert runtime_app.resources.bot_runtime_config.bot_token == "123456:runtime-secret-token"
+        assert runtime_app.telegram_runtime.resources is not None
+        assert runtime_app.telegram_runtime.resources.owner_id == 3003
+        assert runtime_app.telegram_runtime.resources.bot_runtime_config is not None
+        assert (
+            runtime_app.telegram_runtime.resources.bot_runtime_config.bot_token
+            == "123456:AA-runtime-secret-token"
+        )
+        assert runtime_app.telegram_runtime.state_snapshot().status == TELEGRAM_RUNTIME_RUNNING
     finally:
+        await runtime_app.telegram_runtime.stop()
         await runtime_app.engine.dispose()
 
 
@@ -326,4 +358,70 @@ async def test_start_polling_uses_runtime_owner_id_for_command_menu(monkeypatch)
     assert scheduler.stopped is True
     assert dispatcher.started_with is bot
     assert bot.session.closed is True
-    assert engine.disposed is True
+    assert engine.disposed is False
+
+
+async def test_runtime_manager_start_from_db_without_enabled_bot_sets_dynamic_state(tmp_path) -> None:
+    bootstrap_config = BootstrapConfig(
+        database_url=await _create_sqlite_database(tmp_path / "manager-empty.db"),
+        settings_encryption_key=SecretService.generate_key(),
+        webui_admin_token="admin-secret",
+    )
+    runtime_app = await build_runtime_app(bootstrap_config, env={})
+    try:
+        await runtime_app.telegram_runtime.start_from_db()
+
+        state = runtime_app.telegram_runtime.state_snapshot()
+        assert state.status == TELEGRAM_RUNTIME_NO_ENABLED_BOT
+        assert state.detail == "no enabled bot instance is configured"
+        assert runtime_app.telegram_runtime.resources is None
+    finally:
+        await runtime_app.engine.dispose()
+
+
+async def test_runtime_manager_rejects_reload_change_when_summary_active(tmp_path) -> None:
+    bootstrap_config = BootstrapConfig(
+        database_url=await _create_sqlite_database(tmp_path / "manager-busy.db"),
+        settings_encryption_key=SecretService.generate_key(),
+        webui_admin_token="admin-secret",
+    )
+    engine = create_async_engine(bootstrap_config.database_url)
+    factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+    gate = SummaryReloadGate()
+    manager = TelegramRuntimeManager(
+        bootstrap_config=bootstrap_config,
+        env={},
+        engine=engine,
+        session_factory=factory,
+        secret_service=SecretService(bootstrap_config.settings_encryption_key),
+        reload_gate=gate,
+        build_resources=lambda *args, **kwargs: _unexpected_call(),
+        start_polling=lambda resources, **kwargs: _unexpected_call(),
+    )
+    called = False
+
+    async def change(session):
+        nonlocal called
+        called = True
+        return await _unexpected_call()
+
+    try:
+        async with gate.enter_bot_delivery_summary():
+            try:
+                await manager.reload_after_change(change)
+            except RuntimeBusyError:
+                pass
+            else:
+                raise AssertionError("expected RuntimeBusyError")
+
+        assert called is False
+    finally:
+        await engine.dispose()
+
+
+async def _record_async(observed: dict[str, object], key: str, value: object) -> None:
+    observed[key] = value
+
+
+async def _unexpected_call():
+    raise AssertionError("unexpected call")

@@ -17,6 +17,8 @@ from summary_relay_bot.handlers import register_routers
 from summary_relay_bot.scheduler import BotScheduler
 from summary_relay_bot.services.runtime_config import BotRuntimeConfig, load_bot_runtime_config
 from summary_relay_bot.services.secrets import SecretError, SecretService
+from summary_relay_bot.services.summary_jobs import SummaryReloadGate
+from summary_relay_bot.services.telegram_runtime import TelegramRuntimeManager
 from summary_relay_bot.telegram.bot import create_bot, ensure_polling_delivery
 from summary_relay_bot.telegram.commands import setup_command_menus
 from summary_relay_bot.web.app import create_web_app
@@ -75,13 +77,13 @@ class RuntimeApp:
     engine: AsyncEngine = field(repr=False)
     session_factory: async_sessionmaker[AsyncSession] = field(repr=False)
     web_app: FastAPI = field(repr=False)
-    resources: AppResources | None = field(default=None, repr=False)
+    telegram_runtime: TelegramRuntimeManager = field(repr=False)
 
     def safe_dict(self) -> dict[str, object]:
         return {
             "bootstrap_config": self.bootstrap_config.safe_dict(),
             "telegram_startup": self.telegram_startup.safe_dict(),
-            "polling_resources_ready": self.resources is not None,
+            "polling_resources_ready": self.telegram_runtime.resources is not None,
         }
 
     def __repr__(self) -> str:
@@ -127,6 +129,7 @@ async def build_app(
     engine: AsyncEngine | None = None,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     secret_service: SecretService,
+    reload_gate: SummaryReloadGate | None = None,
 ) -> AppResources:
     if bot is None:
         if bot_runtime_config is None:
@@ -141,6 +144,7 @@ async def build_app(
         session_factory=session_factory,
         secret_service=secret_service,
         owner_id=owner_id,
+        reload_gate=reload_gate,
     )
 
     dispatcher["config"] = config
@@ -148,6 +152,7 @@ async def build_app(
     dispatcher["session_factory"] = session_factory
     dispatcher["scheduler"] = scheduler
     dispatcher["secret_service"] = secret_service
+    dispatcher["reload_gate"] = reload_gate
     register_routers(dispatcher, config, owner_id=owner_id)
 
     return AppResources(
@@ -168,6 +173,7 @@ async def build_runtime_app(
     env: Mapping[str, str],
 ) -> RuntimeApp:
     secret_service = SecretService(bootstrap_config.settings_encryption_key)
+    reload_gate = SummaryReloadGate()
     engine = create_engine(bootstrap_config.database_url)
     session_factory = create_session_factory(engine)
 
@@ -176,36 +182,22 @@ async def build_runtime_app(
             session_factory,
             secret_service=secret_service,
         )
+        telegram_runtime = TelegramRuntimeManager(
+            bootstrap_config=bootstrap_config,
+            env=env,
+            engine=engine,
+            session_factory=session_factory,
+            secret_service=secret_service,
+            reload_gate=reload_gate,
+            build_resources=build_app,
+            start_polling=start_polling,
+        )
         web_app = create_web_app(
             bootstrap_config=bootstrap_config,
             session_factory=session_factory,
             secret_service=secret_service,
             telegram_startup=telegram_startup.safe_dict(),
-        )
-        if not telegram_startup.should_start_polling:
-            return RuntimeApp(
-                bootstrap_config=bootstrap_config,
-                telegram_startup=telegram_startup,
-                engine=engine,
-                session_factory=session_factory,
-                web_app=web_app,
-            )
-
-        bot_runtime_config = telegram_startup.bot_runtime_config
-        if bot_runtime_config is None:
-            raise RuntimeError("telegram startup state is ready without bot runtime config")
-        app_config = AppConfig.from_bootstrap_runtime(
-            bootstrap_config,
-            env=env,
-        )
-        resources = await build_app(
-            app_config,
-            owner_id=bot_runtime_config.owner_id,
-            bot_runtime_config=bot_runtime_config,
-            bot=create_bot(bot_runtime_config),
-            engine=engine,
-            session_factory=session_factory,
-            secret_service=secret_service,
+            telegram_runtime=telegram_runtime,
         )
         return RuntimeApp(
             bootstrap_config=bootstrap_config,
@@ -213,23 +205,28 @@ async def build_runtime_app(
             engine=engine,
             session_factory=session_factory,
             web_app=web_app,
-            resources=resources,
+            telegram_runtime=telegram_runtime,
         )
     except Exception:
         await engine.dispose()
         raise
 
 
-async def start_polling(resources: AppResources) -> None:
+async def start_polling(
+    resources: AppResources,
+    *,
+    ready_event: asyncio.Event | None = None,
+) -> None:
     try:
         await ensure_polling_delivery(resources.bot, resources.config)
         await setup_command_menus(resources.bot, resources.owner_id)
         await resources.scheduler.start()
+        if ready_event is not None:
+            ready_event.set()
         await resources.dispatcher.start_polling(resources.bot)
     finally:
         await resources.scheduler.stop()
         await resources.bot.session.close()
-        await resources.engine.dispose()
 
 
 async def start_web_api(runtime_app: RuntimeApp) -> None:
@@ -245,29 +242,11 @@ async def start_web_api(runtime_app: RuntimeApp) -> None:
 
 
 async def run_runtime_app(runtime_app: RuntimeApp) -> None:
-    if runtime_app.resources is None:
-        try:
-            await start_web_api(runtime_app)
-        finally:
-            await runtime_app.engine.dispose()
-        return
-
-    web_task = asyncio.create_task(start_web_api(runtime_app), name="web-api")
-    polling_task = asyncio.create_task(start_polling(runtime_app.resources), name="telegram-polling")
-    tasks = {web_task, polling_task}
     try:
-        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
-        for task in done:
-            task.result()
+        await runtime_app.telegram_runtime.start_from_db()
+        await start_web_api(runtime_app)
     finally:
-        unfinished = [task for task in tasks if not task.done()]
-        for task in unfinished:
-            task.cancel()
-        if unfinished:
-            await asyncio.gather(*unfinished, return_exceptions=True)
+        await runtime_app.telegram_runtime.stop()
         await runtime_app.engine.dispose()
 
 

@@ -7,8 +7,13 @@ from summary_relay_bot.config import BootstrapConfig
 from summary_relay_bot.db.models import AuditLog, BotInstance
 from summary_relay_bot.db.session import session_scope
 from summary_relay_bot.services import runtime_config
-from summary_relay_bot.services.runtime_config import create_bot_instance
+from summary_relay_bot.services.runtime_config import (
+    clear_bot_restart_flags,
+    create_bot_instance,
+    get_bot_instance_view,
+)
 from summary_relay_bot.services.secrets import SecretService
+from summary_relay_bot.services.telegram_runtime import RuntimeBusyError
 from summary_relay_bot.web.app import create_web_app
 
 
@@ -33,6 +38,38 @@ def _web_app(session_factory, bootstrap_config: BootstrapConfig):
             "detail": "no enabled bot instance is configured",
         },
     )
+
+
+def _web_app_with_runtime(session_factory, bootstrap_config: BootstrapConfig, telegram_runtime):
+    return create_web_app(
+        bootstrap_config=bootstrap_config,
+        session_factory=session_factory,
+        secret_service=SecretService(bootstrap_config.settings_encryption_key),
+        telegram_startup={
+            "status": "no_enabled_bot",
+            "detail": "no enabled bot instance is configured",
+        },
+        telegram_runtime=telegram_runtime,
+    )
+
+
+class BusyRuntime:
+    async def reload_after_change(self, change):
+        raise RuntimeBusyError("busy")
+
+
+class SuccessfulRuntime:
+    def __init__(self, session_factory) -> None:
+        self.session_factory = session_factory
+        self.reloads = 0
+
+    async def reload_after_change(self, change):
+        self.reloads += 1
+        async with session_scope(self.session_factory) as session:
+            bot = await change(session)
+            await clear_bot_restart_flags(session, bot_instance_ids=None)
+        async with self.session_factory() as session:
+            return await get_bot_instance_view(session, bot.id)
 
 
 async def _request(
@@ -237,6 +274,80 @@ async def test_patch_bot_replaces_secret_without_leaking_plaintext(session_facto
     assert "replace_bot_token" in [log.action for log in audit_logs]
     assert "old-secret" not in rendered_audit
     assert "new-secret" not in rendered_audit
+
+
+async def test_patch_bot_reload_required_busy_returns_409_without_committing(
+    session_factory,
+) -> None:
+    bootstrap_config = _bootstrap_config()
+    secret_service = SecretService(bootstrap_config.settings_encryption_key)
+    async with session_scope(session_factory) as session:
+        bot = await create_bot_instance(
+            session,
+            secret_service=secret_service,
+            name="Main bot",
+            bot_token="123456:old-secret",
+            owner_id=1001,
+            enabled=True,
+        )
+        bot_id = bot.id
+        encrypted_before = bot.bot_token_encrypted
+
+    response = await _request(
+        _web_app_with_runtime(session_factory, bootstrap_config, BusyRuntime()),
+        "PATCH",
+        "/api/bot",
+        json={"id": bot_id, "bot_token": "123456:new-secret"},
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "error": {
+            "code": "runtime_busy",
+            "message": "Bot runtime reload is blocked by an active summary; retry after it finishes",
+        }
+    }
+    assert "old-secret" not in response.text
+    assert "new-secret" not in response.text
+    async with session_factory() as session:
+        bot = await session.get(BotInstance, bot_id)
+        assert bot is not None
+        assert bot.bot_token_encrypted == encrypted_before
+        assert secret_service.decrypt(bot.bot_token_encrypted) == "123456:old-secret"
+        assert bot.needs_restart is False
+
+
+async def test_patch_bot_reload_success_clears_restart_flag(session_factory) -> None:
+    bootstrap_config = _bootstrap_config()
+    secret_service = SecretService(bootstrap_config.settings_encryption_key)
+    async with session_scope(session_factory) as session:
+        bot = await create_bot_instance(
+            session,
+            secret_service=secret_service,
+            name="Main bot",
+            bot_token="123456:old-secret",
+            owner_id=1001,
+            enabled=True,
+        )
+        bot_id = bot.id
+    runtime = SuccessfulRuntime(session_factory)
+
+    response = await _request(
+        _web_app_with_runtime(session_factory, bootstrap_config, runtime),
+        "PATCH",
+        "/api/bot",
+        json={"id": bot_id, "owner_id": 9988776655},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["needs_restart"] is False
+    assert response.json()["owner_id_redacted"] == "99***55"
+    assert runtime.reloads == 1
+    async with session_factory() as session:
+        bot = await session.get(BotInstance, bot_id)
+        assert bot is not None
+        assert bot.owner_id == 9988776655
+        assert bot.needs_restart is False
 
 
 async def test_patch_bot_owner_id_marks_restart_and_redacts_audit(session_factory) -> None:

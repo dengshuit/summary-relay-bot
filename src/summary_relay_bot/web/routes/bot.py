@@ -21,7 +21,13 @@ from summary_relay_bot.services.runtime_config import (
     validate_bot_instance,
 )
 from summary_relay_bot.services.secrets import SecretService
-from summary_relay_bot.web.deps import get_actor, get_secret_service, get_session_factory
+from summary_relay_bot.services.telegram_runtime import RuntimeBusyError, TelegramRuntimeManager
+from summary_relay_bot.web.deps import (
+    get_actor,
+    get_secret_service,
+    get_session_factory,
+    get_telegram_runtime,
+)
 from summary_relay_bot.web.errors import api_error_response
 from summary_relay_bot.web.schemas import (
     BotCreateRequest,
@@ -75,6 +81,26 @@ def _validation_schema(result: BotValidationResult) -> BotValidateResponse:
     )
 
 
+def _runtime_busy_response() -> JSONResponse:
+    return api_error_response(
+        status_code=409,
+        code="runtime_busy",
+        message="Bot runtime reload is blocked by an active summary; retry after it finishes",
+    )
+
+
+def _has_non_empty_secret(value: str | None) -> bool:
+    return value is not None and value.strip() != ""
+
+
+def _patch_requires_runtime_reload(payload: BotUpdateRequest, fields: set[str]) -> bool:
+    return (
+        ("owner_id" in fields and payload.owner_id is not None)
+        or ("enabled" in fields and payload.enabled is not None)
+        or ("bot_token" in fields and _has_non_empty_secret(payload.bot_token))
+    )
+
+
 @router.get("", response_model=BotListResponse)
 async def get_bot_config(
     session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
@@ -93,8 +119,22 @@ async def post_bot_config(
     session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
     secret_service: Annotated[SecretService, Depends(get_secret_service)],
     actor: Annotated[str, Depends(get_actor)],
+    telegram_runtime: Annotated[TelegramRuntimeManager | None, Depends(get_telegram_runtime)],
 ) -> BotInstanceSchema | JSONResponse:
     try:
+        if payload.enabled and telegram_runtime is not None:
+            bot = await telegram_runtime.reload_after_change(
+                lambda session: _create_bot_instance_view(
+                    session,
+                    secret_service=secret_service,
+                    payload=payload,
+                    actor=actor,
+                )
+            )
+            schema = _bot_schema(bot)
+            if schema is None:
+                raise RuntimeError("created bot instance unexpectedly missing")
+            return schema
         async with session_scope(session_factory) as session:
             bot = await create_bot_instance(
                 session,
@@ -122,6 +162,8 @@ async def post_bot_config(
             if schema is None:
                 raise RuntimeError("created bot instance unexpectedly missing")
             return schema
+    except RuntimeBusyError:
+        return _runtime_busy_response()
     except RuntimeConfigError as exc:
         return api_error_response(
             status_code=400,
@@ -163,6 +205,7 @@ async def patch_bot_config(
     session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
     secret_service: Annotated[SecretService, Depends(get_secret_service)],
     actor: Annotated[str, Depends(get_actor)],
+    telegram_runtime: Annotated[TelegramRuntimeManager | None, Depends(get_telegram_runtime)],
 ) -> BotInstanceSchema | JSONResponse:
     fields = _provided_fields(payload)
     update_fields = {
@@ -171,14 +214,25 @@ async def patch_bot_config(
         if name in fields
     }
     try:
-        async with session_scope(session_factory) as session:
-            bot = await update_bot_instance(
-                session,
-                secret_service=secret_service,
-                bot_instance_id=payload.id,
-                actor=actor,
-                **update_fields,
+        if telegram_runtime is not None and _patch_requires_runtime_reload(payload, fields):
+            bot = await telegram_runtime.reload_after_change(
+                lambda session: update_bot_instance(
+                    session,
+                    secret_service=secret_service,
+                    bot_instance_id=payload.id,
+                    actor=actor,
+                    **update_fields,
+                )
             )
+        else:
+            async with session_scope(session_factory) as session:
+                bot = await update_bot_instance(
+                    session,
+                    secret_service=secret_service,
+                    bot_instance_id=payload.id,
+                    actor=actor,
+                    **update_fields,
+                )
     except BotInstanceNotFoundError:
         return api_error_response(
             status_code=404,
@@ -191,7 +245,39 @@ async def patch_bot_config(
             code="validation_error",
             message=str(exc),
         )
+    except RuntimeBusyError:
+        return _runtime_busy_response()
     schema = _bot_schema(bot)
     if schema is None:
         raise RuntimeError("updated bot instance unexpectedly missing")
     return schema
+
+
+async def _create_bot_instance_view(
+    session: AsyncSession,
+    *,
+    secret_service: SecretService,
+    payload: BotCreateRequest,
+    actor: str,
+) -> BotInstanceView:
+    bot = await create_bot_instance(
+        session,
+        secret_service=secret_service,
+        name=payload.name,
+        bot_token=payload.bot_token,
+        owner_id=payload.owner_id,
+        enabled=payload.enabled,
+        actor=actor,
+    )
+    return BotInstanceView(
+        id=bot.id,
+        name=bot.name,
+        owner_id_redacted=redact_owner_id(bot.owner_id) or "",
+        telegram_bot_id=bot.telegram_bot_id,
+        telegram_username=bot.telegram_username,
+        enabled=bot.enabled,
+        status=bot.status,
+        needs_restart=bot.needs_restart,
+        last_validated_at=bot.last_validated_at,
+        secret=SecretState(configured=bool(bot.bot_token_encrypted), updated_at=None),
+    )

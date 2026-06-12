@@ -5,7 +5,7 @@
 ### 1. Scope / Trigger
 
 - Trigger: adding or changing `/api/bot` management endpoints.
-- Applies to FastAPI routes under `src/summary_relay_bot/web/routes/bot.py`, schemas in `src/summary_relay_bot/web/schemas.py`, frontend API methods in `web/src/api/client.ts`, and Bot runtime rules in `src/summary_relay_bot/services/runtime_config.py`.
+- Applies to FastAPI routes under `src/summary_relay_bot/web/routes/bot.py`, schemas in `src/summary_relay_bot/web/schemas.py`, frontend API methods in `web/src/api/client.ts`, Bot runtime rules in `src/summary_relay_bot/services/runtime_config.py`, and runtime coordination in `src/summary_relay_bot/services/telegram_runtime.py`.
 - Secret-bearing fields include Bot token, `WEBUI_ADMIN_TOKEN`, and `SETTINGS_ENCRYPTION_KEY`; owner ID is sensitive and must be redacted in responses/audit output.
 
 ### 2. Signatures
@@ -14,6 +14,7 @@
 - `POST /api/bot`
 - `PATCH /api/bot`
 - `POST /api/bot/validate`
+- Runtime-coordinated `POST /api/bot` / `PATCH /api/bot` may return `409 runtime_busy`.
 
 ### 3. Contracts
 
@@ -22,13 +23,19 @@
 - Bot response exposes `secret: { configured: bool, updated_at: datetime | null }`, never `bot_token` or encrypted secret values.
 - `GET /api/bot` returns `active` separately and `items` for the remaining Bot instances; frontend consumers must merge `active` plus `items` when offering instance selection.
 - `POST /api/bot` requires `name`, `owner_id`, and `bot_token`; `enabled` defaults to `true`.
+- `POST /api/bot` with `enabled=true` is reload-required: after the row is created, the server must try to converge the in-process Telegram runtime without restarting Web API.
 - `PATCH /api/bot` treats `bot_token` as:
   - missing: no change
   - `null`: no change
   - empty string or whitespace-only string: no change
   - non-empty string: replace encrypted secret, reset validation identity/status, and mark restart required
+- Reload-required `PATCH /api/bot` fields are non-empty `bot_token`, non-null `owner_id`, and non-null `enabled`.
+- Name-only updates, validation status changes, Telegram identity fields, and blank/null/missing `bot_token` must not trigger runtime reload.
 - `POST /api/bot/validate` may accept a temporary non-empty `bot_token`; validation with a temporary token must not replace stored encrypted token material.
 - Enabling one Bot instance disables any previously enabled Bot instance and marks affected instances restart-required.
+- Runtime reload must rebuild the aiogram Bot, Dispatcher, owner filters, command menus, scheduler, and scheduled summary jobs.
+- Successful runtime convergence clears `needs_restart` for affected Bot instances. Failed convergence keeps `needs_restart=true` and exposes only safe runtime state.
+- If a Bot-delivering summary is active, reload-required Bot changes must fail before saving with `409 runtime_busy`; old runtime remains unchanged.
 
 ### 4. Validation & Error Matrix
 
@@ -37,13 +44,18 @@
 - Empty `bot_token` on create -> `400 validation_error`.
 - `owner_id <= 0` on create/update -> `400 validation_error`.
 - Creating an enabled Bot while another Bot is enabled -> `400 validation_error`.
+- Reload-required create/update while a Bot-delivering summary is active -> `409 runtime_busy` with `{"error": {"code": "runtime_busy", "message": "Bot runtime reload is blocked by an active summary; retry after it finishes"}}`; the requested config change is not committed.
+- Reload build/start failure after a config write -> response still follows the normal safe Bot response shape, `needs_restart` remains true, and dashboard runtime state reports a safe failure detail.
 - Missing Bot ID on patch/validate -> `404 not_found`.
 - FastAPI request validation errors must use the redacted `request validation failed` response and must not echo request input.
 
 ### 5. Good/Base/Bad Cases
 
 - Good: `POST /api/bot` with valid name, owner ID, and Bot token creates an encrypted Bot instance, returns only redacted owner/secret state, and writes redacted audit.
+- Good: `PATCH /api/bot` with `{"owner_id": <positive int>}` while no Bot-delivering summary is active applies the DB change, rebuilds runtime owner-bound resources, clears relevant `needs_restart`, and returns only redacted owner/secret state.
 - Base: `PATCH /api/bot` with `{}` or blank `bot_token` returns the Bot without changing encrypted token material.
+- Base: `PATCH /api/bot` with only `name` updates the DB/audit path and does not call the runtime manager.
+- Bad: committing a non-empty token, owner, or enabled-state change and then returning `409 runtime_busy`; busy checks must happen before the config write.
 - Bad: returning a raw `owner_id`, `bot_token`, encrypted secret, admin token, or encryption key from any Bot endpoint or audit payload.
 
 ### 6. Tests Required
@@ -55,6 +67,8 @@
 - Bot non-empty `bot_token` on patch replaces encrypted value and audit remains redacted.
 - Bot validation with a temporary token does not replace the stored token.
 - Enabling a Bot leaves exactly one enabled Bot.
+- Runtime manager start/stop/reload tests cover no-enabled-bot, successful hot start, failed reload preserving `needs_restart`, and busy summary conflict.
+- Bot route tests cover enabled create hot start, token/owner/enabled reload, name-only no reload, blank token no reload, and `409 runtime_busy` with no DB commit.
 - Malformed request validation does not echo secret-bearing input.
 
 ### 7. Wrong vs Correct
@@ -80,6 +94,27 @@ return BotInstanceSchema(
 ```
 
 Return only the redacted owner ID and secret configured state; keep encryption/decryption inside the service layer.
+
+#### Wrong
+
+```python
+bot = await update_bot_instance(session, **reload_required_fields)
+if await gate.has_active_bot_delivery_summary():
+    return runtime_busy()
+```
+
+This commits the config before checking whether reload is allowed.
+
+#### Correct
+
+```python
+if not await reload_gate.try_begin_runtime_reload():
+    return runtime_busy()
+bot = await update_bot_instance(session, **reload_required_fields)
+await telegram_runtime.reload_from_db()
+```
+
+Check the reload gate before mutating Bot runtime fields; release the gate after runtime convergence or failure.
 
 ## Scenario: LLM Provider / Summary Profile Management API
 
