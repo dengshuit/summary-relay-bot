@@ -610,3 +610,38 @@ Simplified the LLM provider channel drawer, required explicit model configuratio
 ### Next Steps
 
 - None - task complete
+
+
+## Session 19: Bot validation and private relay diagnostics
+
+**Date**: 2026-06-12
+**Task**: Bot validation and private relay diagnostics
+**Branch**: `master`
+
+### Summary
+
+Improved Telegram bot validation diagnostics and proxy usage, fixed polling runtime startup so it stays alive after ready, and refined private relay display plus Bot status refresh.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `062192f` | (see git log) |
+| `2e81ed9` | (see git log) |
+| `9fe2d82` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
