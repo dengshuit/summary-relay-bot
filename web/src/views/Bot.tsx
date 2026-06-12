@@ -13,7 +13,7 @@ import {
 type SaveNotice = {
   kind: 'success' | 'error' | 'info';
   title: string;
-  detail: string;
+  detail?: string;
 };
 
 export default function BotConfig() {
@@ -121,6 +121,26 @@ export default function BotConfig() {
           detail: 'text-slate-600',
         };
 
+  const validateSavedBot = async (botId: number | string): Promise<SaveNotice> => {
+    const result = await api.validateBot({
+      id: botId,
+      bot_token: null,
+    });
+
+    if (result.success) {
+      return {
+        kind: 'success',
+        title: '保存并校验成功',
+      };
+    }
+
+    return {
+      kind: 'error',
+      title: '保存成功，校验失败',
+      detail: result.detail || result.error_message || 'Token 校验未通过。',
+    };
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaveNotice(null);
@@ -143,14 +163,21 @@ export default function BotConfig() {
           enabled,
           bot_token: botToken.trim()
         });
+        let nextNotice: SaveNotice;
+        try {
+          nextNotice = await validateSavedBot(newBot.id);
+        } catch (validationErr: any) {
+          nextNotice = {
+            kind: 'error',
+            title: '保存成功，校验异常',
+            detail: validationErr.message || 'Token 校验请求失败。',
+          };
+        }
+
         setBotToken('');
         setOwnerId('');
         await fetchBots(newBot.id);
-        setSaveNotice({
-          kind: 'success',
-          title: '保存成功',
-          detail: 'Bot 配置已创建。页面已刷新脱敏后的配置状态。',
-        });
+        setSaveNotice(nextNotice);
       } catch (err: any) {
         setSaveNotice({
           kind: 'error',
@@ -185,7 +212,6 @@ export default function BotConfig() {
       setSaveNotice({
         kind: 'info',
         title: '无可提交变更',
-        detail: '当前表单内容与已保存配置一致，未发起保存请求。',
       });
       return;
     }
@@ -202,14 +228,21 @@ export default function BotConfig() {
     setSaving(true);
     try {
       await api.updateBot(updatePayload);
+      let nextNotice: SaveNotice;
+      try {
+        nextNotice = await validateSavedBot(selectedBotId);
+      } catch (validationErr: any) {
+        nextNotice = {
+          kind: 'error',
+          title: '保存成功，校验异常',
+          detail: validationErr.message || 'Token 校验请求失败。',
+        };
+      }
+
       setBotToken('');
       setOwnerId('');
       await fetchBots(selectedBotId);
-      setSaveNotice({
-        kind: 'success',
-        title: '保存成功',
-        detail: 'Bot 配置已更新。页面已刷新脱敏后的配置状态。',
-      });
+      setSaveNotice(nextNotice);
     } catch (err: any) {
       setSaveNotice({
         kind: 'error',
@@ -294,7 +327,6 @@ export default function BotConfig() {
           <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
           <div>
             <h4 className="text-xs font-semibold text-amber-900 uppercase tracking-widest">尚未配置 Bot</h4>
-            <p className="text-xs text-amber-700 mt-0.5">当前为单 Bot 实例模式，请在下方填写配置并保存。保存成功后页面会回显脱敏后的配置数据。</p>
           </div>
         </div>
       )}
@@ -308,7 +340,9 @@ export default function BotConfig() {
           )}
           <div>
             <h4 className={`text-xs font-semibold ${saveNoticeStyle.title} uppercase tracking-widest`}>{saveNotice.title}</h4>
-            <p className={`text-xs ${saveNoticeStyle.detail} mt-0.5`}>{saveNotice.detail}</p>
+            {saveNotice.detail && (
+              <p className={`text-xs ${saveNoticeStyle.detail} mt-0.5`}>{saveNotice.detail}</p>
+            )}
           </div>
         </div>
       )}
