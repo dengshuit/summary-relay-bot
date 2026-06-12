@@ -6,6 +6,9 @@
 
 本阶段交付目标是**静态高保真原型方向**(验证页面结构与视觉),不锁定前端技术栈,不在本任务内实现前端代码。后端数据模型、API 能力边界、安全语义沿用已归档的《Web 管理配置中心 PRD》(`.trellis/tasks/archive/2026-06/06-10-web-config-center-prd/prd.md`),本 PRD 不重复定义,只在交互层引用其约束。
 
+历史说明:本 PRD 保留页面层需求和安全交互约束。后续旧 React/Semi
+前端落地方案已废弃,不再作为当前 `web/` 的实现依据。
+
 ## Current Context
 
 - 后端配置数据模型已落地于 `src/summary_relay_bot/db/models.py`:`bot_instances`、`llm_providers`、`summary_profiles`、`group_summary_settings`、`audit_logs`,以及带 provenance 字段的 `summary_jobs` / `summary_results`。
@@ -180,21 +183,23 @@
 
 ## Open Questions
 
-- 已决策:真实 WebUI 实现采用 React + TypeScript + Semi Design + Vite;后端采用 FastAPI `/api/*`;生产保持 Python 单体部署,同时提供 API 和 Vite build 后的静态资源。
+- 历史说明:旧 React/Semi/Vite 落地决策已废弃;当前 WebUI 实现应以当前 `web/` 源码和当前 API 合同为准。
 - 已决策:Dashboard 首期以状态汇总为主,趋势/分布图可用 VChart / VisActor 支撑,但不把本项目扩展为监控大盘。
 - 已决策:摘要历史首期在群组详情页展示最近 N 条,不先做复杂历史检索页。
 
 ## Post-Prototype Implementation Plan
 
-原型确认后的真实 WebUI 落地计划已拆分到以下文件:
+原型确认后的历史落地计划已拆分到以下文件。后端 API 批次仍可作为
+历史上下文参考;前端与部署批次属于已废弃旧前端方案,不再作为当前
+WebUI 实施依据:
 
 - [`implementation/plan.md`](implementation/plan.md):总执行计划、技术决策、目录规划、全局接口约定、全局门禁。
 - [`implementation/batch-01-web-api-auth.md`](implementation/batch-01-web-api-auth.md):Web API 骨架与认证。
 - [`implementation/batch-02-bot-config-api.md`](implementation/batch-02-bot-config-api.md):Bot 配置 API。
 - [`implementation/batch-03-engine-api.md`](implementation/batch-03-engine-api.md):LLM Provider / Summary Profile API。
 - [`implementation/batch-04-groups-jobs-audit-api.md`](implementation/batch-04-groups-jobs-audit-api.md):Group / Summary Job / Audit API。
-- [`implementation/batch-05-frontend-app.md`](implementation/batch-05-frontend-app.md):前端工程初始化与页面落地。
-- [`implementation/batch-06-deploy-smoke-docs.md`](implementation/batch-06-deploy-smoke-docs.md):单体部署、Smoke Test 与文档。
+- [`implementation/batch-05-frontend-app.md`](implementation/batch-05-frontend-app.md):已废弃旧前端落地说明。
+- [`implementation/batch-06-deploy-smoke-docs.md`](implementation/batch-06-deploy-smoke-docs.md):已废弃旧前端部署说明。
 
 执行原则:
 
