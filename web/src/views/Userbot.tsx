@@ -332,6 +332,48 @@ export default function Userbot() {
               </label>
             </div>
 
+            <div className="rounded-lg border border-indigo-100/80 bg-indigo-50/25 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <KeyRound className="h-4 w-4 text-indigo-600" />
+                <h4 className="text-[13px] font-bold text-gray-900">获取 API ID / API Hash</h4>
+              </div>
+              <ol className="space-y-3 text-[13px] leading-relaxed text-gray-600">
+                <li className="flex gap-3">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 font-mono text-[10px] font-bold text-white">
+                    1
+                  </span>
+                  <span>
+                    打开{' '}
+                    <a
+                      href="https://my.telegram.org"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-indigo-700 underline decoration-indigo-200 underline-offset-2 hover:text-indigo-800"
+                    >
+                      my.telegram.org
+                    </a>
+                    ，进入 <span className="font-semibold text-gray-800">API development tools</span>。
+                  </span>
+                </li>
+                <li className="flex gap-3">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 font-mono text-[10px] font-bold text-white">
+                    2
+                  </span>
+                  <span>创建一个 Telegram application，提交后页面会生成这组应用凭据。</span>
+                </li>
+                <li className="flex gap-3">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 font-mono text-[10px] font-bold text-white">
+                    3
+                  </span>
+                  <span>
+                    复制 <code className="font-mono text-gray-900">api_id</code> 和{' '}
+                    <code className="font-mono text-gray-900">api_hash</code> 填入上方对应字段；{' '}
+                    <code className="font-mono text-gray-900">api_hash</code> 按密钥保存，不要公开。
+                  </span>
+                </li>
+              </ol>
+            </div>
+
             <div className="flex items-center justify-end gap-3 border-t border-gray-100 pt-4">
               <button
                 type="button"
