@@ -43,30 +43,53 @@ const toneIcon = {
   info: Info
 };
 
-const toneStyle: Record<ToastTone, { accent: string; icon: string; label: string; labelText: string }> = {
+const toneStyle: Record<
+  ToastTone,
+  {
+    accent: string;
+    border: string;
+    icon: string;
+    iconFrame: string;
+    label: string;
+    labelText: string;
+    progress: string;
+  }
+> = {
   success: {
     accent: 'bg-emerald-500',
+    border: 'border-emerald-200/80',
     icon: 'text-emerald-600',
+    iconFrame: 'bg-emerald-50 border-emerald-100',
     label: 'text-emerald-700',
-    labelText: '成功'
+    labelText: '成功',
+    progress: 'bg-emerald-500'
   },
   error: {
     accent: 'bg-red-500',
+    border: 'border-red-200/90',
     icon: 'text-red-600',
+    iconFrame: 'bg-red-50 border-red-100',
     label: 'text-red-700',
-    labelText: '错误'
+    labelText: '错误',
+    progress: 'bg-red-500'
   },
   warning: {
     accent: 'bg-amber-500',
+    border: 'border-amber-200/90',
     icon: 'text-amber-600',
+    iconFrame: 'bg-amber-50 border-amber-100',
     label: 'text-amber-700',
-    labelText: '警告'
+    labelText: '警告',
+    progress: 'bg-amber-500'
   },
   info: {
-    accent: 'bg-slate-400',
-    icon: 'text-gray-500',
-    label: 'text-gray-500',
-    labelText: '提示'
+    accent: 'bg-indigo-500',
+    border: 'border-indigo-200/80',
+    icon: 'text-indigo-600',
+    iconFrame: 'bg-indigo-50 border-indigo-100',
+    label: 'text-indigo-700',
+    labelText: '提示',
+    progress: 'bg-indigo-500'
   }
 };
 
@@ -115,7 +138,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="fixed bottom-4 right-4 z-[100] flex w-[calc(100vw-2rem)] max-w-[360px] flex-col gap-2 pointer-events-none sm:bottom-6 sm:right-6">
+      <div className="fixed bottom-4 right-4 z-[100] flex w-[calc(100vw-2rem)] max-w-[388px] flex-col gap-2.5 pointer-events-none sm:bottom-6 sm:right-6">
         <AnimatePresence initial={false}>
           {toasts.map((toast) => {
             const Icon = toneIcon[toast.tone];
@@ -125,35 +148,45 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               <motion.div
                 key={toast.id}
                 role={toast.tone === 'error' ? 'alert' : 'status'}
-                initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 6, scale: 0.98 }}
-                transition={{ duration: 0.14, ease: 'easeOut' }}
-                className="pointer-events-auto relative overflow-hidden rounded-md border border-[#d9dde5] bg-[#fbfbfa] px-3 py-2.5 text-gray-900 shadow-[0_1px_2px_rgba(15,23,42,0.06)]"
+                initial={{ opacity: 0, x: 14, y: 8, scale: 0.98 }}
+                animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
+                exit={{ opacity: 0, x: 10, y: 6, scale: 0.98 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+                className={`pointer-events-auto relative overflow-hidden rounded-xl border ${style.border} bg-white text-gray-900 shadow-[0_14px_30px_rgba(31,35,41,0.12),0_2px_6px_rgba(31,35,41,0.06)]`}
               >
-                <span className={`absolute inset-y-0 left-0 w-0.5 ${style.accent}`} aria-hidden="true" />
-                <div className="flex items-start gap-2.5">
-                  <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${style.icon}`} strokeWidth={2} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-baseline gap-1.5">
-                      <span className={`shrink-0 text-[10px] font-semibold leading-4 ${style.label}`}>
+                <span className={`absolute inset-y-0 left-0 w-1 ${style.accent}`} aria-hidden="true" />
+                <div className="flex items-start gap-3 px-3.5 py-3">
+                  <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${style.iconFrame}`}>
+                    <Icon className={`h-4.5 w-4.5 shrink-0 ${style.icon}`} strokeWidth={2.3} />
+                  </div>
+                  <div className="min-w-0 flex-1 pt-0.5">
+                    <div className="mb-0.5 flex min-w-0 items-center gap-2">
+                      <span className={`shrink-0 text-[10px] font-bold leading-4 tracking-wider ${style.label}`}>
                         {style.labelText}
                       </span>
-                      <p className="min-w-0 text-[12px] font-semibold leading-5 text-gray-950">{toast.title}</p>
+                      <span className="h-1 w-1 rounded-full bg-gray-300" aria-hidden="true" />
+                      <p className="min-w-0 truncate text-[13px] font-bold leading-5 text-gray-950">{toast.title}</p>
                     </div>
                     {toast.detail && (
-                      <p className="mt-0.5 text-[11px] leading-4 text-gray-600 break-words">{toast.detail}</p>
+                      <p className="text-[12px] leading-5 text-gray-600 break-words">{toast.detail}</p>
                     )}
                   </div>
                   <button
                     type="button"
                     aria-label="关闭提示"
                     onClick={() => removeToast(toast.id)}
-                    className="-mr-1 rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                    className="-mr-1 mt-0.5 rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <X className="h-3.5 w-3.5" strokeWidth={2.4} />
                   </button>
                 </div>
+                <motion.span
+                  className={`absolute bottom-0 left-0 h-0.5 w-full origin-left ${style.progress}`}
+                  initial={{ scaleX: 1 }}
+                  animate={{ scaleX: 0 }}
+                  transition={{ duration: toast.durationMs / 1000, ease: 'linear' }}
+                  aria-hidden="true"
+                />
               </motion.div>
             );
           })}
