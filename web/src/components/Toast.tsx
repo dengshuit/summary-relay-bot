@@ -43,6 +43,33 @@ const toneIcon = {
   info: Info
 };
 
+const toneStyle: Record<ToastTone, { accent: string; icon: string; label: string; labelText: string }> = {
+  success: {
+    accent: 'bg-emerald-500',
+    icon: 'text-emerald-600',
+    label: 'text-emerald-700',
+    labelText: '成功'
+  },
+  error: {
+    accent: 'bg-red-500',
+    icon: 'text-red-600',
+    label: 'text-red-700',
+    labelText: '错误'
+  },
+  warning: {
+    accent: 'bg-amber-500',
+    icon: 'text-amber-600',
+    label: 'text-amber-700',
+    labelText: '警告'
+  },
+  info: {
+    accent: 'bg-slate-400',
+    icon: 'text-gray-500',
+    label: 'text-gray-500',
+    labelText: '提示'
+  }
+};
+
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const nextId = useRef(1);
@@ -92,6 +119,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         <AnimatePresence initial={false}>
           {toasts.map((toast) => {
             const Icon = toneIcon[toast.tone];
+            const style = toneStyle[toast.tone];
 
             return (
               <motion.div
@@ -101,12 +129,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 6, scale: 0.98 }}
                 transition={{ duration: 0.14, ease: 'easeOut' }}
-                className="pointer-events-auto rounded-md border border-[#d9dde5] bg-[#fbfbfa] px-3 py-2.5 text-gray-900 shadow-[0_1px_2px_rgba(15,23,42,0.06)]"
+                className="pointer-events-auto relative overflow-hidden rounded-md border border-[#d9dde5] bg-[#fbfbfa] px-3 py-2.5 text-gray-900 shadow-[0_1px_2px_rgba(15,23,42,0.06)]"
               >
+                <span className={`absolute inset-y-0 left-0 w-0.5 ${style.accent}`} aria-hidden="true" />
                 <div className="flex items-start gap-2.5">
-                  <Icon className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" strokeWidth={2} />
+                  <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${style.icon}`} strokeWidth={2} />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[12px] font-semibold leading-5 text-gray-950">{toast.title}</p>
+                    <div className="flex min-w-0 items-baseline gap-1.5">
+                      <span className={`shrink-0 text-[10px] font-semibold leading-4 ${style.label}`}>
+                        {style.labelText}
+                      </span>
+                      <p className="min-w-0 text-[12px] font-semibold leading-5 text-gray-950">{toast.title}</p>
+                    </div>
                     {toast.detail && (
                       <p className="mt-0.5 text-[11px] leading-4 text-gray-600 break-words">{toast.detail}</p>
                     )}
