@@ -678,3 +678,43 @@ Implemented SummaryBot branding, dashboard card navigation, time-aware greeting,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 21: Admin Toast Notification Polish
+
+**Date**: 2026-06-13
+**Task**: Admin Toast Notification Polish
+**Branch**: `master`
+
+### Summary
+
+Unified admin feedback into Toast notifications, added status tone differentiation, and aligned Toast visuals with the admin UI surface style.
+
+### Main Changes
+
+- Added a global Toast provider and replaced admin `alert()` feedback across the Web UI.
+- Converted Bot save feedback from an in-page colored status strip to the shared Toast channel.
+- Differentiated success, error, warning, and info states with restrained status tones.
+- Refined Toast styling to match the admin UI surface language: white panel, rounded `xl` corners, subtle status border, icon frame, left accent rail, and bottom timeout progress line.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d9eedd0` | (see git log) |
+| `a781d6c` | (see git log) |
+| `c2342cf` | (see git log) |
+
+### Testing
+
+- [OK] `npm run lint`
+- [OK] `npm run build`
+- [OK] `rg "alert\\(" web/src` returned no remaining browser alert calls after the Toast migration.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
