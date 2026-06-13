@@ -10,13 +10,13 @@ from sqlalchemy.orm import selectinload
 
 from summary_relay_bot.db.models import (
     GroupChat,
-    GroupSummarySettings,
     LLMProvider,
     SummaryJob,
     SummaryProfile,
 )
 from summary_relay_bot.db.repositories import (
     get_active_summary_job,
+    latest_summary_delivery_attempt,
     get_summary_job_for_group,
     recent_summary_jobs_for_group,
 )
@@ -39,27 +39,37 @@ from summary_relay_bot.services.summary_jobs import (
     get_summary_job_status,
     schedule_manual_summary_job,
 )
+from summary_relay_bot.services.summary_notifications import SummaryNotificationDispatcher
 from summary_relay_bot.services.summary_test_tasks import (
     SummaryTestTaskRegistry,
     SummaryTestTaskRegistryFullError,
     SummaryTestTaskView,
 )
+from summary_relay_bot.services.userbot_auth import UserbotConfigError
+from summary_relay_bot.services.userbot_ingestion import (
+    DialogDiscoveryProvider,
+    refresh_enabled_userbot_dialogs,
+)
 from summary_relay_bot.web.deps import (
     get_actor,
     get_secret_service,
     get_session_factory,
+    get_summary_notification_dispatcher,
     get_summary_test_task_registry,
+    get_userbot_dialog_discovery_provider,
 )
 from summary_relay_bot.web.errors import api_error_response
 from summary_relay_bot.web.schemas import (
     EffectiveSummaryProfileSchema,
     GroupDetailSchema,
+    GroupDiscoveryRefreshResponse,
     GroupLastSummarySchema,
     GroupListItemSchema,
     GroupListResponse,
     GroupSummarySettingsSchema,
     GroupSummarySettingsUpdateRequest,
     GroupSummaryStateSchema,
+    SummaryDeliverySchema,
     SummaryJobResultSchema,
     SummaryJobSchema,
     SummaryTestTaskSchema,
@@ -100,8 +110,7 @@ def _decode_cursor(cursor: str | None) -> int | None:
 
 
 def _settings_schema(group: GroupChat) -> GroupSummarySettingsSchema:
-    settings = group.summary_settings
-    if settings is None:
+    if group.summary_settings is None:
         return GroupSummarySettingsSchema(
             enabled=False,
             interval_minutes=_DEFAULT_INTERVAL_MINUTES,
@@ -109,10 +118,10 @@ def _settings_schema(group: GroupChat) -> GroupSummarySettingsSchema:
             timezone=_DEFAULT_TIMEZONE,
         )
     return GroupSummarySettingsSchema(
-        enabled=settings.enabled,
-        interval_minutes=settings.interval_minutes,
-        summary_profile_id=settings.summary_profile_id,
-        timezone=settings.timezone,
+        enabled=group.enabled,
+        interval_minutes=group.interval_minutes or _DEFAULT_INTERVAL_MINUTES,
+        summary_profile_id=group.summary_profile_id,
+        timezone=group.timezone,
     )
 
 
@@ -138,9 +147,29 @@ def _last_summary_schema(job: SummaryJob | None) -> GroupLastSummarySchema | Non
     )
 
 
-def _job_result_schema(result: SummaryJobResultView | None) -> SummaryJobResultSchema | None:
+def _delivery_schema(attempt) -> SummaryDeliverySchema | None:
+    if attempt is None:
+        return None
+    return SummaryDeliverySchema(
+        status=attempt.status,
+        attempt_count=attempt.attempt_count,
+        max_attempts=attempt.max_attempts,
+        total_chunks=attempt.total_chunks,
+        sent_chunks=attempt.sent_chunks,
+        error_type=attempt.error_type,
+        error_message=attempt.error_message,
+        updated_at=attempt.updated_at,
+    )
+
+
+def _job_result_schema(
+    result: SummaryJobResultView | None,
+    *,
+    delivery_by_result_id: dict[int, SummaryDeliverySchema] | None = None,
+) -> SummaryJobResultSchema | None:
     if result is None:
         return None
+    delivery_by_result_id = delivery_by_result_id or {}
     return SummaryJobResultSchema(
         id=result.id,
         prompt_version=result.prompt_version,
@@ -150,6 +179,7 @@ def _job_result_schema(result: SummaryJobResultView | None) -> SummaryJobResultS
         interval_start_sequence=result.interval_start_sequence,
         interval_end_sequence=result.interval_end_sequence,
         created_at=result.created_at,
+        delivery=delivery_by_result_id.get(result.id),
     )
 
 
@@ -164,6 +194,7 @@ def _job_schema(
     *,
     provider_names: dict[int, str] | None = None,
     profile_names: dict[int, str] | None = None,
+    delivery_by_result_id: dict[int, SummaryDeliverySchema] | None = None,
 ) -> SummaryJobSchema | None:
     if job is None:
         return None
@@ -189,7 +220,7 @@ def _job_schema(
         finished_at=job.finished_at,
         error_type=job.error_type,
         error_message=job.error_message,
-        result=_job_result_schema(job.result),
+        result=_job_result_schema(job.result, delivery_by_result_id=delivery_by_result_id),
     )
 
 
@@ -250,9 +281,8 @@ def _job_view_from_model(job: SummaryJob | None) -> SummaryJobView | None:
 
 
 async def _effective_profile(session: AsyncSession, group: GroupChat) -> SummaryProfile | None:
-    settings = group.summary_settings
-    if settings is not None and settings.summary_profile is not None:
-        return settings.summary_profile
+    if group.summary_profile is not None:
+        return group.summary_profile
     return await default_summary_profile(session)
 
 
@@ -277,6 +307,20 @@ async def _display_maps_for_jobs(
     return provider_names, profile_names
 
 
+async def _delivery_map_for_jobs(
+    session: AsyncSession,
+    jobs: list[SummaryJobView],
+) -> dict[int, SummaryDeliverySchema]:
+    result_ids = [job.result.id for job in jobs if job.result is not None]
+    deliveries: dict[int, SummaryDeliverySchema] = {}
+    for result_id in result_ids:
+        attempt = await latest_summary_delivery_attempt(session, summary_result_id=result_id)
+        delivery = _delivery_schema(attempt)
+        if delivery is not None:
+            deliveries[result_id] = delivery
+    return deliveries
+
+
 async def _group_list_item_schema(session: AsyncSession, group: GroupChat) -> GroupListItemSchema:
     recent_jobs = await recent_summary_jobs_for_group(session, group_id=group.id, limit=1)
     return GroupListItemSchema(
@@ -297,9 +341,7 @@ async def _get_group(session: AsyncSession, group_id: int) -> GroupChat | None:
         GroupChat,
         group_id,
         options=[
-            selectinload(GroupChat.summary_settings)
-            .selectinload(GroupSummarySettings.summary_profile)
-            .selectinload(SummaryProfile.llm_provider),
+            selectinload(GroupChat.summary_profile).selectinload(SummaryProfile.llm_provider),
             selectinload(GroupChat.summary_state),
         ],
     )
@@ -316,13 +358,9 @@ def _groups_statement_with_filters(
     statement = (
         select(GroupChat)
         .options(
-            selectinload(GroupChat.summary_settings).selectinload(GroupSummarySettings.summary_profile),
-            selectinload(GroupChat.summary_settings)
-            .selectinload(GroupSummarySettings.summary_profile)
-            .selectinload(SummaryProfile.llm_provider),
+            selectinload(GroupChat.summary_profile).selectinload(SummaryProfile.llm_provider),
             selectinload(GroupChat.summary_state),
         )
-        .outerjoin(GroupSummarySettings, GroupSummarySettings.group_id == GroupChat.id)
         .order_by(GroupChat.id)
     )
     if cursor_id is not None:
@@ -330,14 +368,9 @@ def _groups_statement_with_filters(
     if q is not None and q.strip():
         statement = statement.where(GroupChat.title.ilike(f"%{q.strip()}%"))
     if enabled is not None:
-        if enabled:
-            statement = statement.where(GroupSummarySettings.enabled.is_(True))
-        else:
-            statement = statement.where(
-                (GroupSummarySettings.id.is_(None)) | (GroupSummarySettings.enabled.is_(False))
-            )
+        statement = statement.where(GroupChat.enabled.is_(enabled))
     if profile_id is not None:
-        statement = statement.where(GroupSummarySettings.summary_profile_id == profile_id)
+        statement = statement.where(GroupChat.summary_profile_id == profile_id)
     if status is not None:
         latest_job_ids = (
             select(
@@ -401,6 +434,42 @@ async def get_groups(
     return GroupListResponse(items=items, next_cursor=next_cursor)
 
 
+@router.post("/refresh-userbot", response_model=GroupDiscoveryRefreshResponse)
+async def refresh_userbot_groups(
+    session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
+    secret_service: Annotated[SecretService, Depends(get_secret_service)],
+    discovery_provider: Annotated[
+        DialogDiscoveryProvider | None,
+        Depends(get_userbot_dialog_discovery_provider),
+    ],
+) -> GroupDiscoveryRefreshResponse | JSONResponse:
+    if discovery_provider is None:
+        return api_error_response(
+            status_code=409,
+            code="conflict",
+            message="userbot dialog discovery is unavailable",
+        )
+    try:
+        async with session_scope(session_factory) as session:
+            result = await refresh_enabled_userbot_dialogs(
+                session,
+                secret_service=secret_service,
+                discover_dialogs=discovery_provider,
+            )
+    except UserbotConfigError as exc:
+        return api_error_response(
+            status_code=409,
+            code="conflict",
+            message=str(exc),
+        )
+    return GroupDiscoveryRefreshResponse(
+        discovered=result.discovered,
+        created=result.created,
+        updated=result.updated,
+        ignored=result.ignored,
+    )
+
+
 @router.get("/{group_id}", response_model=GroupDetailSchema)
 async def get_group(
     group_id: int,
@@ -423,6 +492,7 @@ async def get_group(
             if (job_view := _job_view_from_model(job)) is not None
         ]
         provider_names, profile_names = await _display_maps_for_jobs(session, job_views)
+        delivery_by_result_id = await _delivery_map_for_jobs(session, job_views)
         state = group.summary_state
         return GroupDetailSchema(
             **_model_data(item),
@@ -438,6 +508,7 @@ async def get_group(
                 _job_view_from_model(active_job),
                 provider_names=provider_names,
                 profile_names=profile_names,
+                delivery_by_result_id=delivery_by_result_id,
             ),
             recent_jobs=[
                 job_schema
@@ -447,6 +518,7 @@ async def get_group(
                         _job_view_from_model(job),
                         provider_names=provider_names,
                         profile_names=profile_names,
+                        delivery_by_result_id=delivery_by_result_id,
                     )
                 )
                 is not None
@@ -491,12 +563,13 @@ async def patch_group_summary_settings(
             recent_jobs = await recent_summary_jobs_for_group(session, group_id=group.id, limit=10)
             provider_names, profile_names = await _display_maps_for_jobs(
                 session,
-                [
+                job_views := [
                     job_view
                     for job in [active_job, *recent_jobs]
                     if (job_view := _job_view_from_model(job)) is not None
                 ],
             )
+            delivery_by_result_id = await _delivery_map_for_jobs(session, job_views)
             state = group.summary_state
     except SummaryProfileNotFoundError:
         return api_error_response(
@@ -525,6 +598,7 @@ async def patch_group_summary_settings(
             _job_view_from_model(active_job),
             provider_names=provider_names,
             profile_names=profile_names,
+            delivery_by_result_id=delivery_by_result_id,
         ),
         recent_jobs=[
             job_schema
@@ -534,6 +608,7 @@ async def patch_group_summary_settings(
                     _job_view_from_model(job),
                     provider_names=provider_names,
                     profile_names=profile_names,
+                    delivery_by_result_id=delivery_by_result_id,
                 )
             )
             is not None
@@ -618,6 +693,10 @@ async def post_group_summary_job(
     session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
     secret_service: Annotated[SecretService, Depends(get_secret_service)],
     actor: Annotated[str, Depends(get_actor)],
+    notification_dispatcher: Annotated[
+        SummaryNotificationDispatcher | None,
+        Depends(get_summary_notification_dispatcher),
+    ],
 ) -> TriggerSummaryJobResponse | JSONResponse:
     scheduled_group_id: int | None = None
     scheduled_job_id: int | None = None
@@ -661,6 +740,9 @@ async def post_group_summary_job(
         secret_service=secret_service,
         group_id=scheduled_group_id,
         job_id=scheduled_job_id,
+        schedule_notification=(
+            notification_dispatcher.schedule if notification_dispatcher is not None else None
+        ),
     )
     poll_url = f"/api/groups/{group_id}/summary-jobs/{job.id}"
     response.status_code = 202
@@ -695,7 +777,13 @@ async def get_group_summary_job(
                 message="summary job not found",
             )
         provider_names, profile_names = await _display_maps_for_jobs(session, [job])
-        job_schema = _job_schema(job, provider_names=provider_names, profile_names=profile_names)
+        delivery_by_result_id = await _delivery_map_for_jobs(session, [job])
+        job_schema = _job_schema(
+            job,
+            provider_names=provider_names,
+            profile_names=profile_names,
+            delivery_by_result_id=delivery_by_result_id,
+        )
     if job_schema is None:
         raise RuntimeError("summary job unexpectedly missing")
     return job_schema

@@ -1437,6 +1437,8 @@ async def set_group_summary_settings(
         settings.updated_at = utcnow()
 
     group.updated_at = utcnow()
+    group.enabled = enabled
+    group.collection_status = "active" if enabled else "disabled"
     await session.flush()
     await create_audit_log(
         session,

@@ -11,12 +11,12 @@ This is a v1 polling-based service with a single-process WebUI configuration cen
 - Telegram Bot API polling; no public webhook endpoint required for v1
 - Single configured Telegram administrator with server-side authorization on every admin action
 - WebUI configuration center served by the same Python process as the Bot API polling runtime
-- Group and supergroup discovery by Telegram `chat_id`
+- Telethon userbot group and supergroup discovery for group summaries
 - Quiet group collection by default; groups are discovered disabled until explicitly enabled
 - Group media represented for summaries with placeholders such as `[photo]`, `[voice]`, `[document: filename]`, `[video]`, and `[sticker]`
 - Private incremental summaries for enabled groups
-- Summary cursors advance only after both LLM generation and private Telegram delivery succeed
-- Manual summaries with `/summary` and `/summary <chat_id>`
+- Summary results are persisted for WebUI review before bounded private relay notification
+- Manual summaries from the WebUI
 - Scheduled summaries with per-group intervals
 - Private-user relay with administrator info cards, Telegram `copyMessage`, and reply mappings
 - Administrator replies routed by mapped message replies or `/reply <user_id> <message>`
@@ -54,7 +54,7 @@ Required bootstrap variables:
 | `WEBUI_HOST` | WebUI/API listen host. Use `0.0.0.0` in containers that expose the port. |
 | `WEBUI_PORT` | WebUI/API listen port. |
 
-Bot token, owner ID, LLM API key, provider model, summary profiles, and group summary settings are database-managed runtime configuration. Configure them through the WebUI after the database schema is initialized. Empty databases or databases with no enabled bot still start the WebUI; Telegram polling starts only after an enabled bot can be loaded and decrypted.
+Bot token, owner ID, Telethon userbot credentials/session, LLM API key, provider model, summary profiles, and group summary settings are database-managed runtime configuration. Configure them through the WebUI after the database schema is initialized. Empty databases or databases with no enabled bot still start the WebUI; Telegram polling starts only after an enabled bot can be loaded and decrypted.
 
 Generate `SETTINGS_ENCRYPTION_KEY` with:
 
@@ -72,7 +72,7 @@ Important optional variables:
 | `SCHEDULER_TIMEZONE` | `UTC` | Scheduler timezone. |
 | `SCHEDULER_MISFIRE_GRACE_SECONDS` | `300` | Scheduler misfire grace period. |
 | `SCHEDULER_COALESCE` | `true` | Coalesce missed scheduled runs after downtime. |
-| `TELEGRAM_API_PROXY` | empty | Optional outbound proxy for Telegram Bot API calls, such as `socks5://host.docker.internal:7890` or `http://proxy:8080`. |
+| `TELEGRAM_API_PROXY` | empty | Optional outbound proxy for Telegram Bot API calls, such as `socks5://host.docker.internal:7890` or `http://proxy:8080`. Userbot proxy settings are configured separately in the WebUI and SOCKS support requires `python-socks[asyncio]`. |
 
 Do not commit real tokens, database passwords, encryption keys, administrator tokens, or API keys.
 
@@ -220,6 +220,10 @@ To run migrations manually through the Docker Compose bot image, override the se
 docker compose run --rm bot alembic upgrade head
 ```
 
+### Development schema reset
+
+The Telethon group-summary refactor resets the development database schema into separate relay and summary domains. Existing development rows from the older Bot API group-summary schema are not migrated or preserved. Recreate or reset local development databases before running this refactor, then initialize an empty database with `alembic upgrade head`.
+
 ## WebUI Configuration Center
 
 The WebUI is part of the monolith: the same Python service runs Telegram polling when possible, serves `/api/*`, and serves the built React/Vite app from `web/dist`. The `prototype/` directory is only a static visual and interaction reference and is not included in the production build.
@@ -237,16 +241,28 @@ Secrets are replacement-only:
 
 ## Telegram Setup
 
+### Private relay bot
+
 1. Create a bot with BotFather.
 2. Find the administrator's numeric Telegram user ID.
 3. Log in to the WebUI and configure the Bot token and owner ID.
 4. Have the administrator send `/start` to the bot privately before expecting summary or relay notifications.
-5. Add the bot to groups that should be collected.
-6. If ordinary group messages are not received, review BotFather privacy mode and re-add the bot after changing privacy settings.
 
 If Bot validation fails in the WebUI, first verify that the running process or container can reach `https://api.telegram.org`. When Telegram requires a proxy from your deployment network, set `TELEGRAM_API_PROXY` and restart the service; the setting is used for Bot validation, polling, summary delivery, and private relay delivery.
 
 The bot is quiet in groups by design. Summaries and management responses are sent only in the administrator's private chat.
+
+### Telethon summary userbot
+
+1. Create a Telegram application at `my.telegram.org` and copy its `api_id` and secret `api_hash`.
+2. Open the WebUI Userbot page, configure the userbot name, `api_id`, `api_hash`, phone number, and optional proxy URL.
+3. Send the login code, submit the Telegram code, and submit a 2FA password if Telegram requires one.
+4. Use the Groups page Userbot refresh action to discover visible groups.
+5. Enable only the groups that should be summarized.
+
+The stored Telethon `StringSession` can operate the Telegram account. Treat it like a password: keep `SETTINGS_ENCRYPTION_KEY` stable and secret, do not copy sessions into logs or tickets, and rotate/revoke the session if it leaks.
+
+The first Telethon implementation collects update-stream messages after userbot startup or reconnect delivery. It does not actively call historical backfill APIs such as `iter_messages` or `get_messages`.
 
 ## Administrator Commands
 
@@ -256,13 +272,9 @@ Administrator commands work only in the administrator's private chat with the bo
 | --- | --- |
 | `/start` | Show bot status. |
 | `/help` | Show administrator help. |
-| `/groups` | List discovered groups, enabled state, and interval. |
-| `/enable_group <chat_id> <minutes>` | Enable scheduled summaries for a known group. |
-| `/disable_group <chat_id>` | Disable scheduled summaries for a group. |
-| `/set_interval <chat_id> <minutes>` | Update a group's interval without implicitly enabling it. |
-| `/summary` | Manually summarize all enabled groups. |
-| `/summary <chat_id>` | Manually summarize one known group. |
 | `/reply <user_id> <message>` | Send a text reply to a known private user. |
+
+Group summary management has moved to the WebUI. Telegram commands for listing groups, enabling/disabling summaries, changing intervals, and manual summaries are not part of the private relay bot command surface.
 
 Command menu scopes are only a visibility aid. Server-side owner and private-chat checks still authorize every admin handler.
 
@@ -275,12 +287,15 @@ A summary job:
 1. Reads group messages after the last successful cursor.
 2. Builds a privacy-filtered LLM payload from `message_type` and `summary_content` only.
 3. Calls the configured summary client.
-4. Sends the generated summary privately to the administrator.
-5. Advances the cursor only if Telegram delivery succeeds and the cursor has not changed concurrently.
+4. Persists the generated summary result for WebUI inspection.
+5. Advances the cursor after result persistence if the cursor has not changed concurrently.
+6. Schedules bounded private relay notification to the administrator when the private relay bot is available.
 
-LLM failures, timeouts, empty output, and Telegram delivery failures leave the cursor unchanged.
+LLM failures, timeouts, and empty output leave the cursor unchanged. Telegram notification failures are recorded as delivery attempts and do not roll back a persisted summary result or cursor advancement.
 
 Scheduled and manual summaries share the same summary service and cursor logic. APScheduler `coalesce` and `max_instances=1` are local protections; the database running-job constraint is the correctness boundary for overlapping jobs.
+
+Summary notification delivery sends the full generated summary in ordered chunks when needed. It is bounded to one initial attempt plus at most two retries, with a one-minute timeout per attempt.
 
 ## Private Relay Behavior
 
@@ -309,6 +324,7 @@ Cleanup redacts old raw update JSON payload bodies only. It preserves:
 - summary state
 - summary jobs
 - summary results
+- summary delivery attempts
 
 ## Privacy Boundaries
 
@@ -325,14 +341,16 @@ Cleanup redacts old raw update JSON payload bodies only. It preserves:
 Use a test bot and non-production data.
 
 1. Administrator sends `/start` privately and receives a response.
-2. Send a test message in a group, then run `/groups` privately and confirm the group is discovered but disabled.
-3. Enable one group with `/enable_group <chat_id> <minutes>`.
-4. Send group messages and run `/summary <chat_id>` privately.
-5. Confirm the administrator receives a summary.
-6. Have a non-admin private user message the bot.
-7. Confirm the administrator receives an info card and copied message.
-8. Reply to the mapped administrator-side message and confirm the private user receives the reply.
-9. Test `/reply <user_id> <message>` for a known private user.
+2. Configure and authorize the Telethon userbot in the WebUI.
+3. Refresh visible groups from the Groups page and confirm newly discovered groups are disabled.
+4. Enable one group and configure its interval in the WebUI.
+5. Send group messages and trigger a manual summary in the WebUI.
+6. Confirm the summary result appears in the WebUI even if private relay notification is unavailable.
+7. When the private relay bot is running, confirm the administrator receives the summary notification and WebUI delivery status updates.
+8. Have a non-admin private user message the bot.
+9. Confirm the administrator receives an info card and copied message.
+10. Reply to the mapped administrator-side message and confirm the private user receives the reply.
+11. Test `/reply <user_id> <message>` for a known private user.
 10. Confirm an unscoped ordinary administrator message is rejected.
 
 ## Troubleshooting
@@ -341,7 +359,7 @@ Use a test bot and non-production data.
 | --- | --- |
 | No polling updates | Ensure no webhook is active and only one polling process is running for the bot token. |
 | Group messages are not collected | Check BotFather privacy mode and whether the bot was re-added after changing it. |
-| `/groups` does not show a group | Send a new message in that group after the bot has joined and can receive updates. |
+| A group does not appear in the WebUI | Send a new message in that group after the bot has joined and can receive updates. |
 | Summary fails but cursor does not move | Inspect `summary_jobs.error_type` and `summary_jobs.error_message`; cursor preservation is expected on failures. |
 | Administrator does not receive summaries or relay notifications | Confirm the administrator started the bot privately and has not blocked it. |
 | Reply is rejected as unmapped | Reply directly to the info card or copied message, wait briefly for mapping persistence, or use `/reply` for a known user. |

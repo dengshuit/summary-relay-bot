@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/web-api-contracts.md", "reason": "Verify Groups API response and error contracts remain safe"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify schema/table use does not require unplanned migration"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Verify no raw Telethon payloads or secrets are logged"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify discovery/ingestion data flow closes across layers"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Verify existing group settings and message storage patterns are reused"}

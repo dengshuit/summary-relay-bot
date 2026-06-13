@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from sqlalchemy import select
 
-from summary_relay_bot.db.models import GroupChat, GroupSummarySettings
+from summary_relay_bot.db.models import GroupChat
 from summary_relay_bot.db.repositories import get_or_create_raw_update
 from summary_relay_bot.services.group_collection import collect_group_message
 
@@ -37,4 +37,8 @@ async def test_group_collection_marks_unsupported_debuggable_without_schedule_de
     assert result.status == "ignored_unsupported"
     assert raw_update.processing_status == "ignored_unsupported"
     assert raw_update.error_type == "unsupported_message_type"
-    assert (await db_session.scalars(select(GroupSummarySettings))).all() == []
+    assert group.summary_settings is None
+    assert group.enabled is False
+    assert group.collection_status == "disabled"
+    assert group.interval_minutes is None
+    assert group.summary_profile_id is None

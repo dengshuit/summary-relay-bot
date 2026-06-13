@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify delivery attempt persistence uses existing schema correctly."}
+{"file": ".trellis/spec/backend/web-api-contracts.md", "reason": "Verify summary delivery metadata responses are safe and compatible."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify summary delivery data flow across layers."}

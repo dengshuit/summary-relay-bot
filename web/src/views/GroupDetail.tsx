@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { api } from '../api/client';
-import { GroupDetail as GroupDetailType, SummaryProfile, SummaryTestTask } from '../api/types';
+import { GroupDetail as GroupDetailType, SummaryDelivery, SummaryProfile, SummaryTestTask } from '../api/types';
 import CustomSelect from '../components/CustomSelect';
 import TaskProgressPanel from '../components/TaskProgressPanel';
 import {
@@ -25,6 +25,22 @@ const TEST_TASK_TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'canceled'])
 
 function isTerminalTestTask(task: SummaryTestTask | null): boolean {
   return !!task && TEST_TASK_TERMINAL_STATUSES.has(task.status);
+}
+
+function deliveryLabel(delivery: SummaryDelivery | null | undefined) {
+  if (!delivery) return '未调度';
+  if (delivery.status === 'succeeded') return '已送达';
+  if (delivery.status === 'running' || delivery.status === 'pending') return '投递中';
+  if (delivery.status === 'skipped') return '未启用';
+  if (delivery.status === 'timeout') return '超时';
+  return '失败';
+}
+
+function deliveryTone(delivery: SummaryDelivery | null | undefined) {
+  if (!delivery || delivery.status === 'skipped') return 'text-gray-500';
+  if (delivery.status === 'succeeded') return 'text-emerald-700';
+  if (delivery.status === 'running' || delivery.status === 'pending') return 'text-blue-700';
+  return 'text-rose-700';
 }
 
 export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
@@ -258,6 +274,8 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
   const testTaskActive = testTask && !isTerminalTestTask(testTask);
   const summaryActionDisabled = triggeringJob || !!data.active_job || !!testTaskActive;
   const testTaskLongRunning = !!testTaskActive && Date.now() - Date.parse(testTask.created_at) > 180000;
+  const latestResultJob = data.recent_jobs.find((job) => job.result)?.result || data.active_job?.result || null;
+  const latestDelivery = latestResultJob?.delivery || null;
 
   return (
     <div className="space-y-6 w-full max-w-[96%] xl:max-w-[93%] 2xl:max-w-[1590px] mx-auto p-4 sm:p-6 font-sans">
@@ -467,6 +485,18 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
                     <span className="text-gray-500">上次完成时间</span>
                     <strong className="text-gray-700 font-mono">
                       {data.summary_state?.last_summary_at ? new Date(data.summary_state.last_summary_at).toLocaleTimeString() : '尚未启动'}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">通知投递</span>
+                    <strong
+                      className={`font-mono ${deliveryTone(latestDelivery)}`}
+                      title={latestDelivery?.error_message || undefined}
+                    >
+                      {deliveryLabel(latestDelivery)}
+                      {latestDelivery && latestDelivery.total_chunks > 0
+                        ? ` ${latestDelivery.sent_chunks}/${latestDelivery.total_chunks}`
+                        : ''}
                     </strong>
                   </div>
                 </div>

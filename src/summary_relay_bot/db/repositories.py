@@ -16,13 +16,16 @@ from summary_relay_bot.db.models import (
     PrivateMessage,
     PrivateUser,
     SummaryJob,
+    SummaryDeliveryAttempt,
     SummaryResult,
     SummaryState,
+    SummaryUserbot,
     TelegramUpdate,
     utcnow,
 )
 
 ACTIVE_SUMMARY_JOB_STATUSES = ("pending", "running")
+DEFAULT_SUMMARY_USERBOT_NAME = "legacy-bot-api-compat"
 
 
 async def get_or_create_raw_update(
@@ -36,7 +39,7 @@ async def get_or_create_raw_update(
     if existing:
         return existing, False
 
-    raw_update = TelegramUpdate(update_id=update_id, payload=payload, processing_status=status)
+    raw_update = TelegramUpdate(update_id=update_id, processing_status=status)
     session.add(raw_update)
     await session.flush()
     return raw_update, True
@@ -69,13 +72,22 @@ async def redact_raw_payloads_older_than(
     *,
     older_than: datetime,
 ) -> int:
-    result = await session.execute(
-        update(TelegramUpdate)
-        .where(TelegramUpdate.received_at < older_than)
-        .where(TelegramUpdate.payload_retained.is_(True))
-        .values(payload=None, payload_retained=False, payload_redacted_at=utcnow())
+    return 0
+
+
+async def _ensure_default_summary_userbot(session: AsyncSession) -> SummaryUserbot:
+    userbot = await session.scalar(select(SummaryUserbot).order_by(SummaryUserbot.id).limit(1))
+    if userbot is not None:
+        return userbot
+    userbot = SummaryUserbot(
+        name=DEFAULT_SUMMARY_USERBOT_NAME,
+        enabled=False,
+        auth_status="unconfigured",
+        runtime_status="disabled",
     )
-    return int(result.rowcount or 0)
+    session.add(userbot)
+    await session.flush()
+    return userbot
 
 
 async def upsert_group(
@@ -86,20 +98,30 @@ async def upsert_group(
     title: str | None,
     username: str | None = None,
 ) -> GroupChat:
-    group = await session.scalar(select(GroupChat).where(GroupChat.chat_id == chat_id))
+    userbot = await _ensure_default_summary_userbot(session)
+    group = await session.scalar(
+        select(GroupChat).where(
+            GroupChat.userbot_id == userbot.id,
+            GroupChat.chat_id == chat_id,
+        )
+    )
     if group:
         group.chat_type = chat_type
         group.title = title
         group.username = username
+        group.last_seen_at = utcnow()
         group.updated_at = utcnow()
         await session.flush()
         return group
 
     group = GroupChat(
+        userbot_id=userbot.id,
         chat_id=chat_id,
         chat_type=chat_type,
         title=title,
         username=username,
+        telegram_peer_type=chat_type,
+        collection_status="disabled",
     )
     session.add(group)
     await session.flush()
@@ -114,6 +136,17 @@ async def list_groups(session: AsyncSession) -> Sequence[GroupChat]:
 
 async def get_group_by_chat_id(session: AsyncSession, chat_id: int) -> GroupChat | None:
     return await session.scalar(select(GroupChat).where(GroupChat.chat_id == chat_id))
+
+
+async def get_enabled_userbot_group_by_chat_id(session: AsyncSession, chat_id: int) -> GroupChat | None:
+    return await session.scalar(
+        select(GroupChat)
+        .join(SummaryUserbot, SummaryUserbot.id == GroupChat.userbot_id)
+        .where(
+            GroupChat.chat_id == chat_id,
+            SummaryUserbot.enabled.is_(True),
+        )
+    )
 
 
 async def store_group_message(
@@ -146,7 +179,7 @@ async def store_group_message(
 
     message = GroupMessage(
         group=group,
-        raw_update=raw_update,
+        userbot_id=group.userbot_id,
         telegram_message_id=telegram_message_id,
         sender_user_id=sender_user_id,
         sender_display_name=sender_display_name,
@@ -154,12 +187,15 @@ async def store_group_message(
         text=text,
         caption=caption,
         summary_content=summary_content,
-        file_id=file_id,
-        file_unique_id=file_unique_id,
         file_name=file_name,
         mime_type=mime_type,
         file_size=file_size,
-        media_metadata=media_metadata,
+        media_metadata={
+            **(media_metadata or {}),
+            **({"file_id": file_id} if file_id is not None else {}),
+            **({"file_unique_id": file_unique_id} if file_unique_id is not None else {}),
+        }
+        or None,
     )
     session.add(message)
     await session.flush()
@@ -534,6 +570,79 @@ async def create_summary_result(
     session.add(result)
     await session.flush()
     return result
+
+
+async def create_summary_delivery_attempt(
+    session: AsyncSession,
+    *,
+    summary_result: SummaryResult,
+    relay_bot_id: int | None,
+    target_chat_id: int | None,
+    max_attempts: int,
+    timeout_seconds: int,
+    total_chunks: int,
+    status: str = "pending",
+    error_type: str | None = None,
+    error_message: str | None = None,
+) -> SummaryDeliveryAttempt:
+    attempt = SummaryDeliveryAttempt(
+        result=summary_result,
+        relay_bot_id=relay_bot_id,
+        target_chat_id=target_chat_id,
+        max_attempts=max_attempts,
+        timeout_seconds=timeout_seconds,
+        total_chunks=total_chunks,
+        status=status,
+        error_type=error_type,
+        error_message=error_message,
+    )
+    session.add(attempt)
+    await session.flush()
+    return attempt
+
+
+async def update_summary_delivery_attempt(
+    session: AsyncSession,
+    attempt: SummaryDeliveryAttempt,
+    *,
+    status: str,
+    attempt_count: int | None = None,
+    sent_chunks: int | None = None,
+    telegram_message_ids: list[int] | None = None,
+    error_type: str | None = None,
+    error_message: str | None = None,
+    started: bool = False,
+    finished: bool = False,
+) -> None:
+    now = utcnow()
+    attempt.status = status
+    if attempt_count is not None:
+        attempt.attempt_count = attempt_count
+    if sent_chunks is not None:
+        attempt.sent_chunks = sent_chunks
+    if telegram_message_ids is not None:
+        attempt.telegram_message_ids = telegram_message_ids
+    attempt.error_type = error_type
+    attempt.error_message = error_message
+    attempt.updated_at = now
+    if started and attempt.started_at is None:
+        attempt.started_at = now
+    if finished:
+        attempt.finished_at = now
+    await session.flush()
+
+
+async def latest_summary_delivery_attempt(
+    session: AsyncSession,
+    *,
+    summary_result_id: int,
+) -> SummaryDeliveryAttempt | None:
+    return await session.scalar(
+        select(SummaryDeliveryAttempt)
+        .where(SummaryDeliveryAttempt.summary_result_id == summary_result_id)
+        .order_by(SummaryDeliveryAttempt.id.desc())
+        .limit(1)
+    )
 
 
 async def get_summary_job_for_group(

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { api } from '../api/client';
-import { HistoricalSummary } from '../api/types';
+import { HistoricalSummary, SummaryDelivery } from '../api/types';
 import CustomSelect from '../components/CustomSelect';
 import {
   FileText,
@@ -23,6 +23,38 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useToast } from '../components/Toast';
+
+function deliveryLabel(delivery: SummaryDelivery | null) {
+  if (!delivery) return '未调度';
+  if (delivery.status === 'succeeded') return '已送达';
+  if (delivery.status === 'running' || delivery.status === 'pending') return '投递中';
+  if (delivery.status === 'skipped') return '未启用';
+  if (delivery.status === 'timeout') return '超时';
+  return '失败';
+}
+
+function deliveryBadge(delivery: SummaryDelivery | null) {
+  const label = deliveryLabel(delivery);
+  const status = delivery?.status || 'skipped';
+  const className = status === 'succeeded'
+    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    : status === 'running' || status === 'pending'
+      ? 'bg-blue-50 text-blue-700 border-blue-200'
+      : status === 'skipped'
+        ? 'bg-gray-50 text-gray-500 border-gray-200'
+        : 'bg-rose-50 text-rose-700 border-rose-200';
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold ${className}`}
+      title={delivery?.error_message || undefined}
+    >
+      {label}
+      {delivery && delivery.total_chunks > 0 && (
+        <span className="font-mono opacity-75">{delivery.sent_chunks}/{delivery.total_chunks}</span>
+      )}
+    </span>
+  );
+}
 
 export default function Summaries() {
   const showToast = useToast();
@@ -342,6 +374,7 @@ export default function Summaries() {
                   <th className="px-5 py-3">摘要配置 Profile</th>
                   <th className="px-5 py-3">运行周期</th>
                   <th className="px-5 py-3">归档时间</th>
+                  <th className="px-5 py-3 text-center">通知</th>
                   <th className="px-5 py-3 text-center">状态</th>
                   <th className="px-5 py-3 text-right">操作</th>
                 </tr>
@@ -401,6 +434,10 @@ export default function Summaries() {
                         ) : (
                           <span className="italic text-gray-400">运行队列中...</span>
                         )}
+                      </td>
+
+                      <td className="px-5 py-4 text-center">
+                        {deliveryBadge(s.delivery)}
                       </td>
 
                       {/* Status Badging */}
@@ -496,7 +533,7 @@ export default function Summaries() {
               </div>
 
               {/* Sub-meta details strip */}
-              <div className="px-6 py-2 bg-slate-50/70 border-b border-[#e4e6ec] text-[10px] text-gray-500 font-mono grid grid-cols-2 sm:grid-cols-3 gap-2 shrink-0">
+              <div className="px-6 py-2 bg-slate-50/70 border-b border-[#e4e6ec] text-[10px] text-gray-500 font-mono grid grid-cols-2 sm:grid-cols-4 gap-2 shrink-0">
                 <div>
                   <span className="text-gray-400 select-none">所属群组: </span>
                   <span className="text-gray-800 font-bold">{selectedSummary.group_title || `群组 ${selectedSummary.chat_id}`}</span>
@@ -508,6 +545,10 @@ export default function Summaries() {
                 <div className="col-span-2 sm:col-span-1">
                   <span className="text-gray-400 select-none">归档时间: </span>
                   <span className="text-gray-800 font-bold">{selectedSummary.finished_at ? new Date(selectedSummary.finished_at).toLocaleString() : ''}</span>
+                </div>
+                <div className="col-span-2 sm:col-span-1">
+                  <span className="text-gray-400 select-none">通知状态: </span>
+                  {deliveryBadge(selectedSummary.delivery)}
                 </div>
               </div>
 

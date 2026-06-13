@@ -5,13 +5,24 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy import String, cast, or_, select
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from summary_relay_bot.db.models import GroupChat, LLMProvider, SummaryJob, SummaryProfile, SummaryResult
+from summary_relay_bot.db.models import (
+    GroupChat,
+    LLMProvider,
+    SummaryDeliveryAttempt,
+    SummaryJob,
+    SummaryProfile,
+    SummaryResult,
+)
 from summary_relay_bot.web.deps import get_session_factory
 from summary_relay_bot.web.errors import api_error_response
-from summary_relay_bot.web.schemas import HistoricalSummaryListResponse, HistoricalSummarySchema
+from summary_relay_bot.web.schemas import (
+    HistoricalSummaryListResponse,
+    HistoricalSummarySchema,
+    SummaryDeliverySchema,
+)
 
 
 router = APIRouter(prefix="/summaries", tags=["summaries"])
@@ -60,6 +71,7 @@ def _summary_schema(
     job: SummaryJob,
     group: GroupChat,
     result: SummaryResult | None,
+    delivery: SummaryDeliveryAttempt | None,
     provider: LLMProvider | None,
     profile: SummaryProfile | None,
 ) -> HistoricalSummarySchema:
@@ -69,7 +81,7 @@ def _summary_schema(
         group_id=group.id,
         group_title=group.title,
         group_username=group.username,
-        chat_id=job.chat_id,
+        chat_id=group.chat_id,
         status=job.status,
         trigger_type=job.trigger_type,
         sequence_range=_sequence_range(job, result),
@@ -81,6 +93,20 @@ def _summary_schema(
         error_type=job.error_type,
         error_message=job.error_message,
         content=result.summary_text if result is not None else None,
+        delivery=(
+            SummaryDeliverySchema(
+                status=delivery.status,
+                attempt_count=delivery.attempt_count,
+                max_attempts=delivery.max_attempts,
+                total_chunks=delivery.total_chunks,
+                sent_chunks=delivery.sent_chunks,
+                error_type=delivery.error_type,
+                error_message=delivery.error_message,
+                updated_at=delivery.updated_at,
+            )
+            if delivery is not None
+            else None
+        ),
     )
 
 
@@ -120,10 +146,20 @@ async def get_summaries(
 
     normalized_limit = _normalize_limit(limit)
     async with session_factory() as session:
+        latest_delivery_ids = (
+            select(
+                SummaryDeliveryAttempt.summary_result_id.label("summary_result_id"),
+                func.max(SummaryDeliveryAttempt.id).label("delivery_id"),
+            )
+            .group_by(SummaryDeliveryAttempt.summary_result_id)
+            .subquery()
+        )
         statement = (
-            select(SummaryJob, GroupChat, SummaryResult, LLMProvider, SummaryProfile)
+            select(SummaryJob, GroupChat, SummaryResult, SummaryDeliveryAttempt, LLMProvider, SummaryProfile)
             .join(GroupChat, GroupChat.id == SummaryJob.group_id)
             .outerjoin(SummaryResult, SummaryResult.job_id == SummaryJob.id)
+            .outerjoin(latest_delivery_ids, latest_delivery_ids.c.summary_result_id == SummaryResult.id)
+            .outerjoin(SummaryDeliveryAttempt, SummaryDeliveryAttempt.id == latest_delivery_ids.c.delivery_id)
             .outerjoin(LLMProvider, LLMProvider.id == SummaryJob.llm_provider_id)
             .outerjoin(SummaryProfile, SummaryProfile.id == SummaryJob.summary_profile_id)
             .order_by(SummaryJob.id.desc())
@@ -153,8 +189,8 @@ async def get_summaries(
     rows = rows[:normalized_limit]
     return HistoricalSummaryListResponse(
         items=[
-            _summary_schema(job, group, result, provider, profile)
-            for job, group, result, provider, profile in rows
+            _summary_schema(job, group, result, delivery, provider, profile)
+            for job, group, result, delivery, provider, profile in rows
         ],
         next_cursor=str(rows[-1][0].id) if has_more and rows else None,
     )

@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify summary entity/settings alias behavior and cursor/result storage assumptions."}
+{"file": ".trellis/spec/backend/web-api-contracts.md", "reason": "Verify summary job polling and historical summary responses remain safe and compatible."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify storage-to-service-to-API data flow after refactor."}

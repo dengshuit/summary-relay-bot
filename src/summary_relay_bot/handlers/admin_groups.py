@@ -52,7 +52,7 @@ async def handle_enable_group(
         async with session_scope(session_factory) as session:
             group = await enable_group_summary(session, chat_id=chat_id, interval_minutes=interval)
         if scheduler is not None and hasattr(scheduler, "upsert_summary_job"):
-            scheduler.upsert_summary_job(chat_id, interval)
+            scheduler.upsert_summary_job(group.id, interval, chat_id=group.chat_id)
         await message.answer(f"Enabled summaries for {group.chat_id} every {interval} minutes.")
     except (ValueError, GroupSettingsError) as exc:
         await message.answer(f"Could not enable group: {exc}")
@@ -73,7 +73,7 @@ async def handle_disable_group(
         async with session_scope(session_factory) as session:
             group = await disable_group_summary(session, chat_id=chat_id)
         if scheduler is not None and hasattr(scheduler, "remove_summary_job"):
-            scheduler.remove_summary_job(chat_id)
+            scheduler.remove_summary_job(group.id)
         await message.answer(f"Disabled summaries for {group.chat_id}.")
     except (ValueError, GroupSettingsError) as exc:
         await message.answer(f"Could not disable group: {exc}")
@@ -98,7 +98,7 @@ async def handle_set_interval(
             enabled = bool(settings and settings.enabled)
             scheduler_interval = settings.interval_minutes if settings is not None else interval
         if enabled and scheduler is not None and hasattr(scheduler, "upsert_summary_job"):
-            scheduler.upsert_summary_job(chat_id, scheduler_interval)
+            scheduler.upsert_summary_job(group.id, scheduler_interval, chat_id=group.chat_id)
         await message.answer(f"Updated {group.chat_id} interval to {interval} minutes.")
     except (ValueError, GroupSettingsError) as exc:
         await message.answer(f"Could not update interval: {exc}")

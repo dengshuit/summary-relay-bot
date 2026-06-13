@@ -2,10 +2,13 @@ import {
   DashboardData,
   BotInstance,
   BotValidationResponse,
+  Userbot,
+  UserbotResponse,
   LLMProvider,
   SummaryProfile,
   GroupItem,
   GroupDetail,
+  GroupDiscoveryRefreshResponse,
   AuditLog,
   GroupSummarySettings,
   HistoricalSummary,
@@ -137,6 +140,70 @@ export const api = {
     });
   },
 
+  // Telethon Userbot
+  async getUserbot(): Promise<UserbotResponse> {
+    return apiRequest<UserbotResponse>('GET', '/api/userbot');
+  },
+
+  async createUserbot(data: {
+    name: string;
+    api_id: number | string;
+    api_hash: string;
+    phone_number: string;
+    proxy_url?: string | null;
+    enabled: boolean;
+  }): Promise<Userbot> {
+    return apiRequest<Userbot>('POST', '/api/userbot', {
+      ...data,
+      api_id: Number(data.api_id),
+      proxy_url: data.proxy_url || null,
+    });
+  },
+
+  async updateUserbot(data: {
+    id: number | string;
+    name?: string;
+    api_id?: number | string;
+    api_hash?: string;
+    phone_number?: string;
+    proxy_url?: string;
+    enabled?: boolean;
+  }): Promise<Userbot> {
+    return apiRequest<Userbot>('PATCH', '/api/userbot', {
+      ...data,
+      id: Number(data.id),
+      api_id: data.api_id === undefined ? undefined : Number(data.api_id),
+    });
+  },
+
+  async sendUserbotCode(data: {
+    id?: number | string | null;
+    api_id?: number | string;
+    api_hash?: string;
+    phone_number?: string;
+    proxy_url?: string;
+  }): Promise<Userbot> {
+    return apiRequest<Userbot>('POST', '/api/userbot/send-code', {
+      ...data,
+      id: data.id === undefined || data.id === null ? undefined : Number(data.id),
+      api_id: data.api_id === undefined ? undefined : Number(data.api_id),
+    });
+  },
+
+  async signInUserbot(data: { id?: number | string | null; code: string }): Promise<Userbot> {
+    return apiRequest<Userbot>('POST', '/api/userbot/sign-in', {
+      ...data,
+      id: data.id === undefined || data.id === null ? undefined : Number(data.id),
+    });
+  },
+
+  async submitUserbotPassword(data: { id?: number | string | null; password: string }): Promise<Userbot> {
+    return apiRequest<Userbot>('POST', '/api/userbot/submit-password', {
+      ...data,
+      id: data.id === undefined || data.id === null ? undefined : Number(data.id),
+    });
+  },
+
   // LLM Providers
   async getProviders(): Promise<LLMProvider[]> {
     return apiRequest<LLMProvider[]>('GET', '/api/llm-providers');
@@ -224,6 +291,10 @@ export const api = {
 
   async updateGroupSettings(id: number | string, settings: GroupSummarySettings): Promise<GroupDetail> {
     return apiRequest<GroupDetail>('PATCH', `/api/groups/${id}/summary-settings`, settings);
+  },
+
+  async refreshUserbotGroups(): Promise<GroupDiscoveryRefreshResponse> {
+    return apiRequest<GroupDiscoveryRefreshResponse>('POST', '/api/groups/refresh-userbot');
   },
 
   async triggerGroupSummary(id: number | string): Promise<{ job: SummaryJob; poll_url: string }> {

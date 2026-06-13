@@ -35,6 +35,7 @@ export default function Groups({ setTab, setSelectedGroupId }: GroupsProps) {
   const [items, setItems] = useState<GroupItem[]>([]);
   const [profiles, setProfiles] = useState<SummaryProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshingUserbot, setRefreshingUserbot] = useState(false);
   const [errorHeader, setErrorHeader] = useState<string | null>(null);
 
   // Filter States
@@ -116,6 +117,27 @@ export default function Groups({ setTab, setSelectedGroupId }: GroupsProps) {
     }
   };
 
+  const handleRefreshUserbotGroups = async () => {
+    setRefreshingUserbot(true);
+    try {
+      const result = await api.refreshUserbotGroups();
+      showToast({
+        tone: 'success',
+        title: 'Userbot 群组已刷新',
+        detail: `发现 ${result.discovered} 个，新建 ${result.created} 个，更新 ${result.updated} 个，忽略 ${result.ignored} 个。`
+      });
+      await fetchGroups();
+    } catch (err: any) {
+      showToast({
+        tone: 'error',
+        title: '刷新 Userbot 群组失败',
+        detail: err.message
+      });
+    } finally {
+      setRefreshingUserbot(false);
+    }
+  };
+
   const navigateToDetail = (id: number | string) => {
     const normalizedId = String(id);
     setSelectedGroupId(normalizedId);
@@ -129,13 +151,23 @@ export default function Groups({ setTab, setSelectedGroupId }: GroupsProps) {
         <div>
           <h2 className="text-[24px] font-semibold text-gray-900 leading-none">群组管理</h2>
         </div>
-        <button
-          onClick={fetchGroups}
-          className="p-2 border border-gray-200 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-indigo-600 cursor-pointer h-10 w-10 flex items-center justify-center transition-all"
-          title="重新载入群组数据"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefreshUserbotGroups}
+            disabled={refreshingUserbot}
+            className="p-2 border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg text-gray-400 hover:text-indigo-600 cursor-pointer h-10 w-10 flex items-center justify-center transition-all"
+            title="刷新 Userbot 群组"
+          >
+            <Users className={`w-4 h-4 ${refreshingUserbot ? 'animate-pulse' : ''}`} />
+          </button>
+          <button
+            onClick={fetchGroups}
+            className="p-2 border border-gray-200 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-indigo-600 cursor-pointer h-10 w-10 flex items-center justify-center transition-all"
+            title="重新载入群组数据"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {/* Structured Filter center card */}

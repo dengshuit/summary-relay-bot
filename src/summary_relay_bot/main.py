@@ -18,10 +18,17 @@ from summary_relay_bot.handlers import register_routers
 from summary_relay_bot.scheduler import BotScheduler
 from summary_relay_bot.services.runtime_config import BotRuntimeConfig, load_bot_runtime_config
 from summary_relay_bot.services.secrets import SecretError, SecretService
+from summary_relay_bot.services.summary_notifications import SummaryNotificationDispatcher
 from summary_relay_bot.services.summary_jobs import SummaryReloadGate
 from summary_relay_bot.services.telegram_runtime import TelegramRuntimeManager
+from summary_relay_bot.services.userbot_runtime import SummaryUserbotRuntimeManager
 from summary_relay_bot.telegram.bot import create_bot, ensure_polling_delivery
 from summary_relay_bot.telegram.commands import setup_command_menus
+from summary_relay_bot.telegram.userbot import (
+    UserbotClientConfig,
+    create_telethon_dialog_discovery_provider,
+    create_telethon_update_collector,
+)
 from summary_relay_bot.web.app import create_web_app
 
 logger = logging.getLogger(__name__)
@@ -46,6 +53,7 @@ class AppResources:
     engine: AsyncEngine = field(repr=False)
     session_factory: async_sessionmaker[AsyncSession] = field(repr=False)
     scheduler: BotScheduler = field(repr=False)
+    notification_dispatcher: SummaryNotificationDispatcher | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +88,7 @@ class RuntimeApp:
     session_factory: async_sessionmaker[AsyncSession] = field(repr=False)
     web_app: FastAPI = field(repr=False)
     telegram_runtime: TelegramRuntimeManager = field(repr=False)
+    summary_userbot_runtime: SummaryUserbotRuntimeManager = field(repr=False)
 
     def safe_dict(self) -> dict[str, object]:
         return {
@@ -132,6 +141,7 @@ async def build_app(
     session_factory: async_sessionmaker[AsyncSession] | None = None,
     secret_service: SecretService,
     reload_gate: SummaryReloadGate | None = None,
+    notification_dispatcher: SummaryNotificationDispatcher | None = None,
 ) -> AppResources:
     if bot is None:
         if bot_runtime_config is None:
@@ -140,6 +150,13 @@ async def build_app(
     dispatcher = Dispatcher()
     engine = engine or create_engine(config.database_url)
     session_factory = session_factory or create_session_factory(engine)
+    if notification_dispatcher is None and bot_runtime_config is not None:
+        notification_dispatcher = SummaryNotificationDispatcher(
+            session_factory=session_factory,
+            sender=bot,
+            owner_id=owner_id,
+            relay_bot_id=bot_runtime_config.bot_instance_id,
+        )
     scheduler = BotScheduler(
         config=config,
         bot=bot,
@@ -147,6 +164,7 @@ async def build_app(
         secret_service=secret_service,
         owner_id=owner_id,
         reload_gate=reload_gate,
+        notification_dispatcher=notification_dispatcher,
     )
 
     dispatcher["config"] = config
@@ -166,6 +184,7 @@ async def build_app(
         engine=engine,
         session_factory=session_factory,
         scheduler=scheduler,
+        notification_dispatcher=notification_dispatcher,
     )
 
 
@@ -198,6 +217,32 @@ async def build_runtime_app(
             build_resources=build_app,
             start_polling=start_polling,
         )
+        notification_dispatcher: SummaryNotificationDispatcher | None = None
+        if telegram_startup.bot_runtime_config is not None:
+            notification_dispatcher = SummaryNotificationDispatcher(
+                session_factory=session_factory,
+                sender=None,
+                owner_id=telegram_startup.bot_runtime_config.owner_id,
+                relay_bot_id=telegram_startup.bot_runtime_config.bot_instance_id,
+            )
+
+        async def discover_userbot_dialogs(runtime_config) -> object:
+            provider = create_telethon_dialog_discovery_provider(
+                UserbotClientConfig(
+                    api_id=runtime_config.api_id,
+                    api_hash=runtime_config.api_hash,
+                    session_string=runtime_config.session_string,
+                    proxy_url=runtime_config.proxy_url,
+                )
+            )
+            return await provider()
+
+        summary_userbot_runtime = SummaryUserbotRuntimeManager(
+            session_factory=session_factory,
+            secret_service=secret_service,
+            discover_dialogs=discover_userbot_dialogs,
+            create_update_collector=create_telethon_update_collector,
+        )
         web_app = create_web_app(
             bootstrap_config=bootstrap_config,
             app_config=app_config,
@@ -205,6 +250,8 @@ async def build_runtime_app(
             secret_service=secret_service,
             telegram_startup=telegram_startup.safe_dict(),
             telegram_runtime=telegram_runtime,
+            summary_notification_dispatcher=notification_dispatcher,
+            userbot_dialog_discovery_provider=discover_userbot_dialogs,
         )
         return RuntimeApp(
             bootstrap_config=bootstrap_config,
@@ -213,6 +260,7 @@ async def build_runtime_app(
             session_factory=session_factory,
             web_app=web_app,
             telegram_runtime=telegram_runtime,
+            summary_userbot_runtime=summary_userbot_runtime,
         )
     except Exception:
         await engine.dispose()
@@ -270,8 +318,14 @@ async def start_web_api(runtime_app: RuntimeApp) -> None:
 async def run_runtime_app(runtime_app: RuntimeApp) -> None:
     try:
         await runtime_app.telegram_runtime.start_from_db()
+        summary_userbot_runtime = getattr(runtime_app, "summary_userbot_runtime", None)
+        if summary_userbot_runtime is not None:
+            await summary_userbot_runtime.start_from_db()
         await start_web_api(runtime_app)
     finally:
+        summary_userbot_runtime = getattr(runtime_app, "summary_userbot_runtime", None)
+        if summary_userbot_runtime is not None:
+            await summary_userbot_runtime.stop()
         await runtime_app.telegram_runtime.stop()
         await runtime_app.engine.dispose()
 

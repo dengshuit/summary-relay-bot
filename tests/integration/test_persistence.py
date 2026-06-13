@@ -116,7 +116,7 @@ async def test_only_one_running_summary_job_per_group(db_session) -> None:
     assert len(rows) == 1
 
 
-async def test_retention_redacts_raw_payload_without_deleting_business_metadata(db_session) -> None:
+async def test_retention_noops_after_raw_payload_schema_reset(db_session) -> None:
     raw, _ = await get_or_create_raw_update(db_session, update_id=41, payload={"update_id": 41, "message": "secret"})
     raw.received_at = utcnow() - timedelta(days=60)
     private_user = await upsert_private_user(
@@ -143,7 +143,7 @@ async def test_retention_redacts_raw_payload_without_deleting_business_metadata(
     )
 
     private_messages = (await db_session.scalars(select(PrivateMessage))).all()
-    assert redacted == 1
+    assert redacted == 0
     assert raw.payload is None
     assert raw.payload_retained is False
     assert len(private_messages) == 1

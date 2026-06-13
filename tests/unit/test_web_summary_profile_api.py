@@ -4,10 +4,14 @@ import httpx
 from sqlalchemy import select
 
 from summary_relay_bot.config import BootstrapConfig
-from summary_relay_bot.db.models import AuditLog, GroupSummarySettings, SummaryProfile
+from summary_relay_bot.db.models import AuditLog, SummaryProfile
 from summary_relay_bot.db.repositories import upsert_group
 from summary_relay_bot.db.session import session_scope
-from summary_relay_bot.services.runtime_config import create_llm_provider, create_summary_profile
+from summary_relay_bot.services.runtime_config import (
+    create_llm_provider,
+    create_summary_profile,
+    set_group_summary_settings,
+)
 from summary_relay_bot.services.secrets import SecretService
 from summary_relay_bot.web.app import create_web_app
 
@@ -401,14 +405,13 @@ async def test_delete_summary_profile_rejects_default_or_referenced_and_audits_s
             llm_provider=provider,
         )
         group = await upsert_group(session, chat_id=-900, chat_type="group", title="Group")
-        session.add(
-            GroupSummarySettings(
-                group_id=group.id,
-                enabled=True,
-                interval_minutes=30,
-                summary_profile_id=referenced.id,
-                timezone="UTC",
-            )
+        await set_group_summary_settings(
+            session,
+            group=group,
+            enabled=True,
+            interval_minutes=30,
+            summary_profile=referenced,
+            timezone="UTC",
         )
         default_id = default_profile.id
         referenced_id = referenced.id

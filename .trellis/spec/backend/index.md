@@ -15,7 +15,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | Guide | Description | Status |
 |-------|-------------|--------|
 | [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
-| [Database Guidelines](./database-guidelines.md) | ORM patterns, queries, migrations | To fill |
+| [Database Guidelines](./database-guidelines.md) | ORM patterns, queries, migrations | Active |
 | [Error Handling](./error-handling.md) | Error types, handling strategies | To fill |
 | [Web API Contracts](./web-api-contracts.md) | Management API request/response contracts and secret-safe boundaries | Active |
 | [Telegram Command Contracts](./telegram-command-contracts.md) | Owner/non-owner Telegram command routing contracts | Active |

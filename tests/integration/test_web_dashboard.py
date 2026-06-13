@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from summary_relay_bot.config import BootstrapConfig
 from summary_relay_bot.db.models import AuditLog, BotInstance, GroupChat, SummaryJob, utcnow
+from summary_relay_bot.db.repositories import upsert_group
 from summary_relay_bot.db.session import session_scope
 from summary_relay_bot.services.runtime_config import (
     create_bot_instance,
@@ -141,13 +142,12 @@ async def test_dashboard_trend_handles_sqlite_naive_datetimes(session_factory) -
     bootstrap_config = _bootstrap_config()
     now = utcnow()
     async with session_scope(session_factory) as session:
-        group = GroupChat(
+        group = await upsert_group(
+            session,
             chat_id=-1003004,
             chat_type="supergroup",
             title="Trend group",
         )
-        session.add(group)
-        await session.flush()
         session.add(
             SummaryJob(
                 group_id=group.id,

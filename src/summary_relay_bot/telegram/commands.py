@@ -16,11 +16,6 @@ logger = logging.getLogger(__name__)
 ADMIN_COMMANDS = [
     BotCommand(command="start", description="Show bot status"),
     BotCommand(command="help", description="Show administrator help"),
-    BotCommand(command="groups", description="List known groups"),
-    BotCommand(command="summary", description="Summarize enabled groups or one chat"),
-    BotCommand(command="enable_group", description="Enable scheduled summaries for a group"),
-    BotCommand(command="disable_group", description="Disable scheduled summaries for a group"),
-    BotCommand(command="set_interval", description="Set group summary interval"),
     BotCommand(command="reply", description="Reply to a known private user"),
 ]
 

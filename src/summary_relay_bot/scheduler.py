@@ -12,6 +12,7 @@ from summary_relay_bot.db.session import session_scope
 from summary_relay_bot.services.group_settings import enabled_group_settings
 from summary_relay_bot.services.retention import cleanup_raw_update_payloads
 from summary_relay_bot.services.secrets import SecretService
+from summary_relay_bot.services.summary_notifications import SummaryNotificationDispatcher
 from summary_relay_bot.services.summary_jobs import SummaryReloadGate
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ class BotScheduler:
     secret_service: SecretService
     owner_id: int
     reload_gate: SummaryReloadGate | None = None
+    notification_dispatcher: SummaryNotificationDispatcher | None = None
     scheduler: AsyncIOScheduler = field(init=False)
 
     def __post_init__(self) -> None:
@@ -34,13 +36,17 @@ class BotScheduler:
         async with session_scope(self.session_factory) as session:
             settings = list(await enabled_group_settings(session))
 
-        target_job_ids = {f"summary:{setting.group.chat_id}" for setting in settings}
+        target_job_ids = {self._summary_job_id(setting.id) for setting in settings}
         for job in self.scheduler.get_jobs():
             if job.id.startswith("summary:") and job.id not in target_job_ids:
                 self.scheduler.remove_job(job.id)
 
         for setting in settings:
-            self.upsert_summary_job(setting.group.chat_id, setting.interval_minutes)
+            self.upsert_summary_job(
+                setting.id,
+                setting.interval_minutes,
+                chat_id=setting.chat_id,
+            )
         self.upsert_retention_job()
         if not self.scheduler.running:
             self.scheduler.start()
@@ -49,14 +55,15 @@ class BotScheduler:
         if self.scheduler.running:
             self.scheduler.shutdown(wait=False)
 
-    def upsert_summary_job(self, chat_id: int, interval_minutes: int) -> None:
+    def upsert_summary_job(self, group_id: int, interval_minutes: int, *, chat_id: int | None = None) -> None:
         from summary_relay_bot.services.summary_jobs import run_scheduled_summary
 
+        job_id = self._summary_job_id(group_id)
         self.scheduler.add_job(
             run_scheduled_summary,
             trigger="interval",
             minutes=interval_minutes,
-            id=f"summary:{chat_id}",
+            id=job_id,
             replace_existing=True,
             coalesce=self.config.scheduler_coalesce,
             misfire_grace_time=self.config.scheduler_misfire_grace_seconds,
@@ -66,15 +73,25 @@ class BotScheduler:
                 "session_factory": self.session_factory,
                 "secret_service": self.secret_service,
                 "owner_id": self.owner_id,
+                "group_id": group_id,
                 "chat_id": chat_id,
                 "reload_gate": self.reload_gate,
+                "schedule_notification": (
+                    self.notification_dispatcher.schedule
+                    if self.notification_dispatcher is not None
+                    else None
+                ),
             },
         )
 
-    def remove_summary_job(self, chat_id: int) -> None:
-        job_id = f"summary:{chat_id}"
+    def remove_summary_job(self, group_id: int) -> None:
+        job_id = self._summary_job_id(group_id)
         if self.scheduler.get_job(job_id):
             self.scheduler.remove_job(job_id)
+
+    @staticmethod
+    def _summary_job_id(group_id: int) -> str:
+        return f"summary:{group_id}"
 
     def upsert_retention_job(self) -> None:
         self.scheduler.add_job(

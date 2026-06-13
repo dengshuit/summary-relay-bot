@@ -4,6 +4,7 @@ import httpx
 
 from summary_relay_bot.config import BootstrapConfig
 from summary_relay_bot.db.repositories import (
+    create_summary_delivery_attempt,
     create_running_summary_job,
     create_summary_result,
     ensure_summary_state,
@@ -104,7 +105,7 @@ async def _seed_summary(session, secret_service: SecretService):
     job.llm_provider_id = provider.id
     job.summary_profile_id = profile.id
     job.model = "claude-default"
-    await create_summary_result(
+    result = await create_summary_result(
         session,
         job=job,
         group=group,
@@ -117,6 +118,16 @@ async def _seed_summary(session, secret_service: SecretService):
         model="claude-default",
         interval_start_sequence=state.last_summary_sequence,
         interval_end_sequence=message.id,
+    )
+    await create_summary_delivery_attempt(
+        session,
+        summary_result=result,
+        relay_bot_id=None,
+        target_chat_id=123,
+        max_attempts=3,
+        timeout_seconds=60,
+        total_chunks=1,
+        status="succeeded",
     )
     await finish_summary_job(session, job, "succeeded", cutoff_sequence=message.id)
     return job, group
@@ -138,6 +149,8 @@ async def test_get_summaries_returns_generated_content_without_raw_messages(sess
     assert payload["items"][0]["provider"] == "Primary Claude"
     assert payload["items"][0]["profile_name"] == "Default profile"
     assert payload["items"][0]["content"] == "Generated summary content"
+    assert payload["items"][0]["delivery"]["status"] == "succeeded"
+    assert payload["items"][0]["delivery"]["attempt_count"] == 0
     rendered = response.text
     assert "llm-summary-secret" not in rendered
     assert "raw group text must not leak" not in rendered

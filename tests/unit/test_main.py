@@ -4,10 +4,12 @@ import asyncio
 import logging
 from types import SimpleNamespace
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from summary_relay_bot.config import BootstrapConfig
 from summary_relay_bot.db.base import Base
+from summary_relay_bot.db.models import SummaryEntity, SummaryUserbot
 from summary_relay_bot.db.session import session_scope
 from summary_relay_bot.main import (
     LOG_DATE_FORMAT,
@@ -33,6 +35,8 @@ from summary_relay_bot.services.telegram_runtime import (
     RuntimeBusyError,
     TelegramRuntimeManager,
 )
+from summary_relay_bot.services.userbot_auth import create_summary_userbot
+from summary_relay_bot.services.userbot_ingestion import DiscoveredDialog
 
 
 class FakeTelegramSession:
@@ -79,6 +83,17 @@ class FakeEngine:
 
     async def dispose(self) -> None:
         self.disposed = True
+
+
+class FakeUserbotUpdateCollector:
+    def __init__(self) -> None:
+        self.disconnected = asyncio.Event()
+
+    async def run_until_disconnected(self) -> None:
+        await self.disconnected.wait()
+
+    async def disconnect(self) -> None:
+        self.disconnected.set()
 
 
 async def _create_sqlite_database(path) -> str:
@@ -263,6 +278,79 @@ async def test_run_runtime_app_starts_manager_then_web_api(monkeypatch) -> None:
     assert observed["runtime_started_before_web"] is True
     assert observed["runtime_stopped"] is True
     assert engine.disposed is True
+
+
+async def test_run_runtime_app_starts_summary_userbot_discovery_before_web_api(monkeypatch, tmp_path) -> None:
+    encryption_key = SecretService.generate_key()
+    service = SecretService(encryption_key)
+    database_url = await _create_sqlite_database(tmp_path / "userbot-runtime.db")
+    engine, factory = await _session_factory(database_url)
+    async with session_scope(factory) as session:
+        await create_summary_userbot(
+            session,
+            secret_service=service,
+            name="Main userbot",
+            api_id=12345,
+            api_hash="api-hash-secret",
+            phone_number="+15550001111",
+            session_string="string-session-secret",
+            enabled=True,
+        )
+    await engine.dispose()
+
+    observed: dict[str, object] = {}
+
+    def fake_dialog_provider(config):
+        observed["api_id"] = config.api_id
+        observed["session_string"] = config.session_string
+
+        async def discover_dialogs():
+            return [
+                DiscoveredDialog(
+                    telegram_entity_id=-1001,
+                    entity_type="megagroup",
+                    title="Runtime group",
+                )
+            ]
+
+        return discover_dialogs
+
+    def fake_update_collector(config, userbot_id, handlers):
+        observed["collector_userbot_id"] = userbot_id
+        observed["collector_session_string"] = config.session_string
+        return FakeUserbotUpdateCollector()
+
+    async def fake_start_web_api(runtime_app) -> None:
+        observed["web_started_after_discovery"] = True
+
+    monkeypatch.setattr("summary_relay_bot.main.create_telethon_dialog_discovery_provider", fake_dialog_provider)
+    monkeypatch.setattr("summary_relay_bot.main.create_telethon_update_collector", fake_update_collector)
+    monkeypatch.setattr("summary_relay_bot.main.start_web_api", fake_start_web_api)
+
+    bootstrap_config = BootstrapConfig(
+        database_url=database_url,
+        settings_encryption_key=encryption_key,
+        webui_admin_token="admin-secret",
+    )
+    runtime_app = await build_runtime_app(bootstrap_config, env={})
+    try:
+        await run_runtime_app(runtime_app)
+        async with runtime_app.session_factory() as session:
+            group = await session.scalar(select(SummaryEntity).where(SummaryEntity.chat_id == -1001))
+            userbot = await session.scalar(select(SummaryUserbot))
+        assert observed == {
+            "api_id": 12345,
+            "session_string": "string-session-secret",
+            "collector_userbot_id": userbot.id,
+            "collector_session_string": "string-session-secret",
+            "web_started_after_discovery": True,
+        }
+        assert group is not None
+        assert group.enabled is False
+        assert userbot is not None
+        assert userbot.runtime_status == "stopped"
+    finally:
+        await runtime_app.engine.dispose()
 
 
 async def test_build_runtime_app_uses_database_token_and_owner_for_bot_and_handlers(

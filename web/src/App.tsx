@@ -14,6 +14,7 @@ import { getStoredToken, isAuthenticated, clearStoredToken } from './api/client'
 import Login from './views/Login';
 import Dashboard from './views/Dashboard';
 import BotConfig from './views/Bot';
+import Userbot from './views/Userbot';
 import Engine from './views/Engine';
 import Groups from './views/Groups';
 import GroupDetail from './views/GroupDetail';
@@ -41,6 +42,7 @@ function PrivateLayout({ children }: { children: React.ReactNode }) {
     const path = location.pathname;
     if (path === '/') return 'dashboard';
     if (path.startsWith('/bot')) return 'bot';
+    if (path.startsWith('/userbot')) return 'userbot';
     if (path.startsWith('/engine')) return 'engine';
     if (path.startsWith('/groups')) return 'groups';
     if (path.startsWith('/summaries')) return 'summaries';
@@ -52,6 +54,7 @@ function PrivateLayout({ children }: { children: React.ReactNode }) {
   const handleTabChange = (tab: string) => {
     if (tab === 'dashboard') navigate('/');
     else if (tab === 'bot') navigate('/bot');
+    else if (tab === 'userbot') navigate('/userbot');
     else if (tab === 'engine') navigate('/engine');
     else if (tab === 'groups') navigate('/groups');
     else if (tab === 'summaries') navigate('/summaries');
@@ -153,6 +156,7 @@ function MainApp() {
               setTab={(tab) => {
                 // If dashboard trigger navigation (e.g. modify config)
                 if (tab === 'bot') navigate('/bot');
+                else if (tab === 'userbot') navigate('/userbot');
                 else if (tab === 'engine') navigate('/engine');
                 else if (tab === 'groups') navigate('/groups');
                 else if (tab === 'summaries') navigate('/summaries');
@@ -172,6 +176,15 @@ function MainApp() {
         element={
           <PrivateLayout>
             <BotConfig />
+          </PrivateLayout>
+        }
+      />
+
+      <Route
+        path="/userbot"
+        element={
+          <PrivateLayout>
+            <Userbot />
           </PrivateLayout>
         }
       />

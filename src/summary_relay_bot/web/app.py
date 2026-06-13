@@ -8,8 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from summary_relay_bot.config import AppConfig, BootstrapConfig
 from summary_relay_bot.services.secrets import SecretService
+from summary_relay_bot.services.summary_notifications import SummaryNotificationDispatcher
 from summary_relay_bot.services.summary_test_tasks import SummaryTestTaskRegistry
 from summary_relay_bot.services.telegram_runtime import TelegramRuntimeManager
+from summary_relay_bot.services.userbot_ingestion import DialogDiscoveryProvider
 from summary_relay_bot.web.auth import require_admin_token
 from summary_relay_bot.web.errors import (
     WebUnauthorizedError,
@@ -25,6 +27,7 @@ from summary_relay_bot.web.routes.private_relays import router as private_relays
 from summary_relay_bot.web.routes.system import router as system_router
 from summary_relay_bot.web.routes.summaries import router as summaries_router
 from summary_relay_bot.web.routes.summary_profiles import router as summary_profiles_router
+from summary_relay_bot.web.routes.userbot import router as userbot_router
 from summary_relay_bot.web.static import mount_webui_static
 
 
@@ -36,6 +39,8 @@ def create_web_app(
     secret_service: SecretService,
     telegram_startup: object,
     telegram_runtime: TelegramRuntimeManager | None = None,
+    summary_notification_dispatcher: SummaryNotificationDispatcher | None = None,
+    userbot_dialog_discovery_provider: DialogDiscoveryProvider | None = None,
     static_dir: Path | str | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Summary Relay Bot Web API")
@@ -49,11 +54,14 @@ def create_web_app(
     app.state.summary_test_task_registry = SummaryTestTaskRegistry()
     app.state.telegram_startup = telegram_startup
     app.state.telegram_runtime = telegram_runtime
+    app.state.summary_notification_dispatcher = summary_notification_dispatcher
+    app.state.userbot_dialog_discovery_provider = userbot_dialog_discovery_provider
     app.add_exception_handler(WebUnauthorizedError, unauthorized_exception_handler)
     app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
 
     api_router = APIRouter(prefix="/api", dependencies=[Depends(require_admin_token)])
     api_router.include_router(bot_router)
+    api_router.include_router(userbot_router)
     api_router.include_router(dashboard_router)
     api_router.include_router(llm_providers_router)
     api_router.include_router(summary_profiles_router)

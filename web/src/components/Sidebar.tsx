@@ -13,7 +13,8 @@ import {
   ChevronRight,
   User,
   FileText,
-  Send
+  Send,
+  Smartphone
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -45,6 +46,7 @@ export default function Sidebar({ currentTab, setTab, onLogout }: SidebarProps) 
   const menuItems = [
     { id: 'dashboard', label: '工作台', icon: LayoutDashboard },
     { id: 'bot', label: 'Bot 配置', icon: Bot },
+    { id: 'userbot', label: 'Userbot', icon: Smartphone },
     { id: 'engine', label: '摘要引擎', icon: Cpu },
     { id: 'groups', label: '群组管理', icon: Users },
     { id: 'private-relays', label: '私聊转发', icon: Send },

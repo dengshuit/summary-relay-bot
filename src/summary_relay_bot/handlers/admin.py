@@ -1,22 +1,15 @@
 from __future__ import annotations
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import Message
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from summary_relay_bot.db.session import session_scope
-from summary_relay_bot.services.secrets import SecretService
-from summary_relay_bot.services.summary_jobs import SummaryReloadGate, run_manual_summary
 from summary_relay_bot.telegram.guards import OwnerPrivateFilter, PrivateNonOwnerFilter, is_owner_user
 
 ADMIN_HELP = (
     "Admin commands:\n"
-    "/groups - list discovered groups\n"
-    "/summary [chat_id] - summarize enabled groups or one group\n"
-    "/enable_group <chat_id> <minutes> - enable scheduled summaries\n"
-    "/disable_group <chat_id> - disable scheduled summaries\n"
-    "/set_interval <chat_id> <minutes> - update a group's interval\n"
+    "/start - show bot status\n"
+    "/help - show this help\n"
     "/reply <user_id> <message> - send a text reply to a known private user"
 )
 
@@ -25,6 +18,8 @@ USER_HELP = (
     "and they can reply through this bot."
 )
 
+USER_UNSUPPORTED_COMMAND = "Only /start and /help are available here."
+
 
 def build_router(*, owner_id: int) -> Router:
     router = Router(name="admin")
@@ -32,13 +27,13 @@ def build_router(*, owner_id: int) -> Router:
 
     router.message.register(handle_admin_start, Command("start"), owner_private)
     router.message.register(handle_admin_help, Command("help"), owner_private)
-    router.message.register(handle_manual_summary, Command("summary"), owner_private)
     router.message.register(
         handle_non_owner_admin_command,
-        Command("summary", "groups", "enable_group", "disable_group", "set_interval", "reply"),
+        Command("reply"),
         PrivateNonOwnerFilter(owner_id),
     )
     router.message.register(handle_user_help, Command("start", "help"), PrivateNonOwnerFilter(owner_id))
+    router.message.register(handle_user_unsupported_command, PrivateNonOwnerFilter(owner_id), F.text.startswith("/"))
     return router
 
 
@@ -56,6 +51,12 @@ async def handle_user_help(message: Message, owner_id: int) -> None:
     await message.answer(USER_HELP)
 
 
+async def handle_user_unsupported_command(message: Message, owner_id: int) -> None:
+    if is_owner_user(getattr(getattr(message, "from_user", None), "id", None), owner_id):
+        return
+    await message.answer(USER_UNSUPPORTED_COMMAND)
+
+
 async def handle_non_owner_admin_command(message: Message, owner_id: int) -> None:
     user_id = getattr(getattr(message, "from_user", None), "id", None)
     chat_type = getattr(getattr(message, "chat", None), "type", None)
@@ -65,29 +66,3 @@ async def handle_non_owner_admin_command(message: Message, owner_id: int) -> Non
         return
     if chat_type == "private":
         await message.answer("That command is only available to the bot owner.")
-
-
-async def handle_manual_summary(
-    message: Message,
-    owner_id: int,
-    session_factory: async_sessionmaker[AsyncSession],
-    secret_service: SecretService,
-    reload_gate: SummaryReloadGate | None = None,
-) -> None:
-    text = getattr(message, "text", "") or ""
-    parts = text.split(maxsplit=1)
-    try:
-        chat_id = int(parts[1]) if len(parts) > 1 else None
-    except ValueError:
-        await message.answer("Usage: /summary [chat_id]")
-        return
-    async with session_scope(session_factory) as session:
-        report = await run_manual_summary(
-            session=session,
-            bot=message.bot,
-            owner_id=owner_id,
-            secret_service=secret_service,
-            requested_chat_id=chat_id,
-            reload_gate=reload_gate,
-        )
-    await message.answer(report)

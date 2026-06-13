@@ -2,47 +2,73 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from aiogram.filters import Command
+from aiogram import Dispatcher
 
-from summary_relay_bot.handlers.admin import USER_HELP, build_router, handle_user_help
-from summary_relay_bot.telegram.guards import PrivateNonOwnerFilter
+from summary_relay_bot.config import AppConfig
+from summary_relay_bot.handlers import admin, register_routers
+from summary_relay_bot.telegram.commands import ADMIN_COMMANDS, USER_COMMANDS
+
+
+REMOVED_SUMMARY_COMMANDS = {"groups", "summary", "enable_group", "disable_group", "set_interval"}
 
 
 class FakeMessage:
-    def __init__(self, user_id: int) -> None:
+    def __init__(self, *, user_id: int = 2002, chat_type: str = "private") -> None:
         self.from_user = SimpleNamespace(id=user_id)
+        self.chat = SimpleNamespace(type=chat_type)
         self.answers: list[str] = []
 
     async def answer(self, text: str) -> None:
         self.answers.append(text)
 
 
-async def test_non_owner_start_help_guidance_is_direct_reply() -> None:
-    message = FakeMessage(2002)
-
-    await handle_user_help(message, owner_id=1001)
-
-    assert message.answers == [USER_HELP]
-    assert "Just send your message here" in USER_HELP
+def _commands(commands) -> set[str]:
+    return {command.command for command in commands}
 
 
-async def test_owner_is_not_handled_by_non_owner_guidance() -> None:
-    message = FakeMessage(1001)
+def test_owner_command_menu_excludes_group_summary_commands() -> None:
+    commands = _commands(ADMIN_COMMANDS)
 
-    await handle_user_help(message, owner_id=1001)
+    assert commands == {"start", "help", "reply"}
+    assert commands.isdisjoint(REMOVED_SUMMARY_COMMANDS)
 
-    assert message.answers == []
+
+def test_non_owner_command_menu_only_exposes_start_and_help() -> None:
+    assert _commands(USER_COMMANDS) == {"start", "help"}
 
 
-def test_router_handles_non_owner_start_and_help_before_private_relay() -> None:
-    router = build_router(owner_id=1001)
-    guidance_handler = router.message.handlers[-1]
-    command_filter = next(
-        filter_object.callback
-        for filter_object in guidance_handler.filters
-        if isinstance(filter_object.callback, Command)
+def test_admin_help_excludes_group_summary_commands() -> None:
+    assert "/reply <user_id> <message>" in admin.ADMIN_HELP
+    for command in REMOVED_SUMMARY_COMMANDS:
+        assert f"/{command}" not in admin.ADMIN_HELP
+
+
+def test_private_relay_dispatcher_does_not_include_group_summary_routers() -> None:
+    dispatcher = Dispatcher()
+
+    register_routers(
+        dispatcher,
+        AppConfig(database_url="sqlite+aiosqlite:///:memory:"),
+        owner_id=1001,
     )
 
-    assert guidance_handler.callback is handle_user_help
-    assert any(isinstance(filter_object.callback, PrivateNonOwnerFilter) for filter_object in guidance_handler.filters)
-    assert command_filter.commands == ("start", "help")
+    assert [router.name for router in dispatcher.sub_routers] == [
+        "admin",
+        "admin_replies",
+        "private_user",
+    ]
+
+
+def test_admin_router_no_longer_registers_manual_summary_handler() -> None:
+    router = admin.build_router(owner_id=1001)
+    callbacks = {handler.callback.__name__ for handler in router.message.handlers}
+
+    assert "handle_manual_summary" not in callbacks
+
+
+async def test_non_owner_unsupported_slash_command_is_not_relayed() -> None:
+    message = FakeMessage()
+
+    await admin.handle_user_unsupported_command(message, owner_id=1001)
+
+    assert message.answers == [admin.USER_UNSUPPORTED_COMMAND]

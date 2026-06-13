@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend spec entry point for API/service/database changes"}
+{"file": ".trellis/spec/backend/web-api-contracts.md", "reason": "Secret-safe API contracts and validation redaction patterns to follow for management endpoints"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Database and migration assumptions for the existing SQLAlchemy async schema"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Secret-safe logging expectations for runtime/auth work"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "This task spans database, service, API, and WebUI layers"}
+{"file": ".trellis/tasks/06-13-telethon-userbot-webui-auth/research/telethon-auth-contracts.md", "reason": "Telethon auth/session/proxy design contracts and official references"}

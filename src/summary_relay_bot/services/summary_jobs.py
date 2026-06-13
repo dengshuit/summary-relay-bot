@@ -18,6 +18,7 @@ from summary_relay_bot.db.repositories import (
     ensure_summary_state,
     finish_summary_job,
     get_active_summary_job,
+    get_enabled_userbot_group_by_chat_id,
     get_group_by_chat_id,
     get_summary_job_for_group,
     mark_summary_job_running,
@@ -32,8 +33,8 @@ from summary_relay_bot.services.runtime_config import (
     load_summary_profile_runtime_config,
 )
 from summary_relay_bot.services.secrets import SecretError, SecretService
-from summary_relay_bot.services.summary_content import render_admin_summary, render_no_new_messages
-from summary_relay_bot.telegram.errors import classify_telegram_error
+from summary_relay_bot.services.summary_content import render_no_new_messages
+from summary_relay_bot.services.summary_notifications import SummaryNotificationScheduler
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +105,7 @@ class SummaryJobResultView:
     interval_start_sequence: int
     interval_end_sequence: int
     created_at: datetime
+    delivery: Any | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +158,7 @@ def _job_view(job) -> SummaryJobView:
                 interval_start_sequence=result.interval_start_sequence,
                 interval_end_sequence=result.interval_end_sequence,
                 created_at=result.created_at,
+                delivery=None,
             )
             if result is not None
             else None
@@ -173,14 +176,16 @@ async def run_manual_summary(
     reload_gate: SummaryReloadGate | None = None,
 ) -> str:
     if requested_chat_id is not None:
-        group = await get_group_by_chat_id(session, requested_chat_id)
+        group = await get_enabled_userbot_group_by_chat_id(session, requested_chat_id)
+        if group is None:
+            group = await get_group_by_chat_id(session, requested_chat_id)
         groups = [group] if group else []
     else:
         groups = [settings.group for settings in await enabled_group_settings(session)]
 
     if not groups:
         if requested_chat_id is None:
-            return "No enabled groups are available for summary. Use /groups and /enable_group first."
+            return "No enabled groups are available for summary. Enable a group in the WebUI first."
         return f"Group {requested_chat_id} is not known yet."
 
     results: list[SummaryRunResult] = []
@@ -206,14 +211,21 @@ async def run_scheduled_summary(
     session_factory: async_sessionmaker[AsyncSession],
     secret_service: SecretService,
     owner_id: int,
-    chat_id: int,
+    group_id: int | None = None,
+    chat_id: int | None = None,
     reload_gate: SummaryReloadGate | None = None,
+    schedule_notification: SummaryNotificationScheduler | None = None,
 ) -> SummaryRunResult:
     async with session_scope(session_factory) as session:
-        group = await get_group_by_chat_id(session, chat_id)
+        group = await session.get(GroupChat, group_id) if group_id is not None else None
+        if group is None and chat_id is not None:
+            group = await get_enabled_userbot_group_by_chat_id(session, chat_id)
+            if group is None:
+                group = await get_group_by_chat_id(session, chat_id)
         settings = await group_summary_settings(session, group=group) if group is not None else None
         if group is None or settings is None or not settings.enabled:
-            return SummaryRunResult(chat_id=chat_id, status="skipped", message="group is disabled")
+            skipped_chat_id = chat_id if chat_id is not None else 0
+            return SummaryRunResult(chat_id=skipped_chat_id, status="skipped", message="group is disabled")
         return await run_summary_for_group(
             session=session,
             bot=bot,
@@ -223,6 +235,7 @@ async def run_scheduled_summary(
             trigger_type="scheduled",
             notify_no_messages=False,
             reload_gate=reload_gate,
+            schedule_notification=schedule_notification,
         )
 
 
@@ -236,45 +249,26 @@ async def run_summary_for_group(
     trigger_type: str,
     notify_no_messages: bool,
     reload_gate: SummaryReloadGate | None = None,
+    schedule_notification: SummaryNotificationScheduler | None = None,
 ) -> SummaryRunResult:
-    if reload_gate is not None:
-        try:
-            async with reload_gate.enter_bot_delivery_summary():
-                return await _run_summary_for_group(
-                    session=session,
-                    bot=bot,
-                    owner_id=owner_id,
-                    secret_service=secret_service,
-                    group=group,
-                    trigger_type=trigger_type,
-                    notify_no_messages=notify_no_messages,
-                )
-        except BotRuntimeReloadInProgressError:
-            return SummaryRunResult(
-                chat_id=group.chat_id,
-                status="blocked",
-                message="bot runtime is reloading",
-            )
     return await _run_summary_for_group(
         session=session,
-        bot=bot,
-        owner_id=owner_id,
         secret_service=secret_service,
         group=group,
         trigger_type=trigger_type,
         notify_no_messages=notify_no_messages,
+        schedule_notification=schedule_notification,
     )
 
 
 async def _run_summary_for_group(
     *,
     session: AsyncSession,
-    bot: Bot,
-    owner_id: int,
     secret_service: SecretService,
     group: GroupChat,
     trigger_type: str,
     notify_no_messages: bool,
+    schedule_notification: SummaryNotificationScheduler | None = None,
 ) -> SummaryRunResult:
     state = await ensure_summary_state(session, group)
     job = await create_running_summary_job(
@@ -290,6 +284,26 @@ async def _run_summary_for_group(
             message="summary already running",
         )
 
+    return await _execute_summary_job(
+        session=session,
+        secret_service=secret_service,
+        group=group,
+        job=job,
+        notify_no_messages=notify_no_messages,
+        schedule_notification=schedule_notification,
+    )
+
+
+async def _execute_summary_job(
+    *,
+    session: AsyncSession,
+    secret_service: SecretService,
+    group: GroupChat,
+    job,
+    notify_no_messages: bool,
+    schedule_notification: SummaryNotificationScheduler | None = None,
+) -> SummaryRunResult:
+    state = await ensure_summary_state(session, group)
     try:
         runtime_profile = await load_summary_profile_runtime_config(
             session,
@@ -301,11 +315,10 @@ async def _run_summary_for_group(
             session,
             job,
             "failed",
-            cutoff_sequence=state.last_summary_sequence,
+            cutoff_sequence=job.starting_sequence,
             error_type="runtime_config_error",
             error_message=str(exc),
         )
-        await _notify_failure(bot, owner_id, group.chat_id, "Runtime summary config failed")
         return SummaryRunResult(
             chat_id=group.chat_id,
             status="failed",
@@ -319,11 +332,11 @@ async def _run_summary_for_group(
         await messages_after_sequence(
             session,
             group=group,
-            sequence=state.last_summary_sequence,
+            sequence=job.starting_sequence,
         )
     )
     if not messages:
-        await finish_summary_job(session, job, "succeeded", cutoff_sequence=state.last_summary_sequence)
+        await finish_summary_job(session, job, "succeeded", cutoff_sequence=job.starting_sequence)
         message = render_no_new_messages(group.title) if notify_no_messages else "no new messages"
         return SummaryRunResult(
             chat_id=group.chat_id,
@@ -347,34 +360,26 @@ async def _run_summary_for_group(
             error_type="llm_failed",
             error_message=str(exc),
         )
-        await _notify_failure(bot, owner_id, group.chat_id, "LLM summary failed")
         return SummaryRunResult(
             chat_id=group.chat_id,
             status="failed",
             message="LLM summary failed; cursor unchanged",
         )
 
-    try:
-        delivered = await bot.send_message(
-            owner_id,
-            render_admin_summary(group.title, summary_text),
-        )
-    except Exception as exc:
-        failure = classify_telegram_error(exc)
-        job_status = "failed" if failure.retryable else "blocked"
-        await finish_summary_job(
-            session,
-            job,
-            job_status,
-            cutoff_sequence=cutoff_sequence,
-            error_type=failure.error_type,
-            error_message=failure.message,
-        )
-        return SummaryRunResult(
-            chat_id=group.chat_id,
-            status=job_status,
-            message=f"Telegram delivery {job_status}; cursor unchanged",
-        )
+    summary_result = await create_summary_result(
+        session,
+        job=job,
+        group=group,
+        summary_text=summary_text,
+        delivered_admin_chat_id=None,
+        delivered_message_id=None,
+        prompt_version=runtime_profile.prompt_version,
+        llm_provider_id=runtime_profile.llm_provider.llm_provider_id,
+        summary_profile_id=runtime_profile.summary_profile_id,
+        model=runtime_profile.model,
+        interval_start_sequence=job.starting_sequence,
+        interval_end_sequence=cutoff_sequence,
+    )
 
     advanced = await advance_summary_cursor_if_current(
         session,
@@ -389,42 +394,23 @@ async def _run_summary_for_group(
             "failed",
             cutoff_sequence=cutoff_sequence,
             error_type="stale_cursor",
-            error_message="summary state cursor changed before delivery result could advance it",
+            error_message="summary state cursor changed before persisted result could advance it",
         )
         return SummaryRunResult(
             chat_id=group.chat_id,
             status="failed",
-            message="cursor changed during summary; delivered summary was not marked successful",
+            message="cursor changed during summary; persisted summary was not marked successful",
         )
 
-    await create_summary_result(
-        session,
-        job=job,
-        group=group,
-        summary_text=summary_text,
-        delivered_admin_chat_id=owner_id,
-        delivered_message_id=getattr(delivered, "message_id", None),
-        prompt_version=runtime_profile.prompt_version,
-        llm_provider_id=runtime_profile.llm_provider.llm_provider_id,
-        summary_profile_id=runtime_profile.summary_profile_id,
-        model=runtime_profile.model,
-        interval_start_sequence=job.starting_sequence,
-        interval_end_sequence=cutoff_sequence,
-    )
     await finish_summary_job(session, job, "succeeded", cutoff_sequence=cutoff_sequence)
+    if schedule_notification is not None:
+        schedule_notification(summary_result.id)
     return SummaryRunResult(
         chat_id=group.chat_id,
         status="succeeded",
-        message="summary delivered and cursor advanced",
+        message="summary persisted and cursor advanced",
         cursor_advanced=True,
     )
-
-
-async def _notify_failure(bot: Bot, owner_id: int, chat_id: int, text: str) -> None:
-    try:
-        await bot.send_message(owner_id, f"{text} for group {chat_id}. Cursor was not advanced.")
-    except Exception:
-        pass
 
 
 def _apply_runtime_profile(job, runtime_profile: SummaryProfileRuntimeConfig) -> None:
@@ -470,6 +456,7 @@ def schedule_manual_summary_job(
     secret_service: SecretService,
     group_id: int,
     job_id: int,
+    schedule_notification: SummaryNotificationScheduler | None = None,
 ) -> None:
     asyncio.create_task(
         run_web_manual_summary_job(
@@ -477,6 +464,7 @@ def schedule_manual_summary_job(
             secret_service=secret_service,
             group_id=group_id,
             job_id=job_id,
+            schedule_notification=schedule_notification,
         ),
         name=f"web-manual-summary:{group_id}:{job_id}",
     )
@@ -488,6 +476,7 @@ async def run_web_manual_summary_job(
     secret_service: SecretService,
     group_id: int,
     job_id: int,
+    schedule_notification: SummaryNotificationScheduler | None = None,
 ) -> None:
     async with session_scope(session_factory) as session:
         group = await session.get(GroupChat, group_id)
@@ -496,86 +485,11 @@ async def run_web_manual_summary_job(
             return
         if not await mark_summary_job_running(session, job):
             return
-
-        try:
-            runtime_profile = await load_summary_profile_runtime_config(
-                session,
-                secret_service=secret_service,
-                group=group,
-            )
-        except (RuntimeConfigError, SecretError) as exc:
-            await finish_summary_job(
-                session,
-                job,
-                "failed",
-                cutoff_sequence=job.starting_sequence,
-                error_type="runtime_config_error",
-                error_message=str(exc),
-            )
-            return
-
-        _apply_runtime_profile(job, runtime_profile)
-        await session.flush()
-
-        state = await ensure_summary_state(session, group)
-        messages = list(
-            await messages_after_sequence(
-                session,
-                group=group,
-                sequence=state.last_summary_sequence,
-            )
-        )
-        if not messages:
-            await finish_summary_job(session, job, "succeeded", cutoff_sequence=state.last_summary_sequence)
-            return
-
-        cutoff_sequence = max(message.id for message in messages)
-        llm_client = PrivacyAwareSummaryClient(runtime_profile)
-        try:
-            summary_text = await llm_client.summarize_group_messages(
-                group_title=group.title,
-                group_messages=messages,
-            )
-        except SummaryLLMError as exc:
-            await finish_summary_job(
-                session,
-                job,
-                "failed",
-                cutoff_sequence=cutoff_sequence,
-                error_type="llm_failed",
-                error_message=str(exc),
-            )
-            return
-
-        advanced = await advance_summary_cursor_if_current(
-            session,
-            state=state,
-            expected_sequence=job.starting_sequence,
-            new_sequence=cutoff_sequence,
-        )
-        if not advanced:
-            await finish_summary_job(
-                session,
-                job,
-                "failed",
-                cutoff_sequence=cutoff_sequence,
-                error_type="stale_cursor",
-                error_message="summary state cursor changed before result could advance it",
-            )
-            return
-
-        await create_summary_result(
-            session,
-            job=job,
+        await _execute_summary_job(
+            session=session,
+            secret_service=secret_service,
             group=group,
-            summary_text=summary_text,
-            delivered_admin_chat_id=None,
-            delivered_message_id=None,
-            prompt_version=runtime_profile.prompt_version,
-            llm_provider_id=runtime_profile.llm_provider.llm_provider_id,
-            summary_profile_id=runtime_profile.summary_profile_id,
-            model=runtime_profile.model,
-            interval_start_sequence=job.starting_sequence,
-            interval_end_sequence=cutoff_sequence,
+            job=job,
+            notify_no_messages=False,
+            schedule_notification=schedule_notification,
         )
-        await finish_summary_job(session, job, "succeeded", cutoff_sequence=cutoff_sequence)

@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/web-api-contracts.md", "reason": "Summary job/history and WebUI-safe response contracts must remain aligned."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Final validation spans backend services, API schemas, frontend types, and docs."}

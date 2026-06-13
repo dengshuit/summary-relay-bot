@@ -14,6 +14,8 @@ from summary_relay_bot.services.runtime_config import (
     set_group_summary_settings,
 )
 from summary_relay_bot.services.secrets import SecretService
+from summary_relay_bot.services.userbot_auth import create_summary_userbot
+from summary_relay_bot.services.userbot_ingestion import DiscoveredDialog
 from summary_relay_bot.web.app import create_web_app
 
 
@@ -28,8 +30,8 @@ def _bootstrap_config() -> BootstrapConfig:
     )
 
 
-def _web_app(session_factory, bootstrap_config: BootstrapConfig):
-    return create_web_app(
+def _web_app(session_factory, bootstrap_config: BootstrapConfig, discovery_provider=None):
+    app = create_web_app(
         bootstrap_config=bootstrap_config,
         session_factory=session_factory,
         secret_service=SecretService(bootstrap_config.settings_encryption_key),
@@ -38,6 +40,9 @@ def _web_app(session_factory, bootstrap_config: BootstrapConfig):
             "detail": "no enabled bot instance is configured",
         },
     )
+    if discovery_provider is not None:
+        app.state.userbot_dialog_discovery_provider = discovery_provider
+    return app
 
 
 async def _request(
@@ -226,3 +231,119 @@ async def test_groups_api_requires_admin_token(session_factory) -> None:
     assert patch_response.status_code == 401
     assert list_response.json() == detail_response.json()
     assert list_response.json() == patch_response.json()
+
+
+async def test_refresh_userbot_groups_requires_authorized_userbot(session_factory) -> None:
+    async def discover_dialogs(_runtime_config):
+        return []
+
+    response = await _request(
+        _web_app(session_factory, _bootstrap_config(), discovery_provider=discover_dialogs),
+        "POST",
+        "/api/groups/refresh-userbot",
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict"
+
+
+async def test_refresh_userbot_groups_discovers_disabled_groups(session_factory) -> None:
+    bootstrap_config = _bootstrap_config()
+    secret_service = SecretService(bootstrap_config.settings_encryption_key)
+
+    observed_runtime = {}
+
+    async def discover_dialogs(runtime_config):
+        observed_runtime["api_id"] = runtime_config.api_id
+        return [
+            DiscoveredDialog(
+                telegram_entity_id=-1001,
+                entity_type="megagroup",
+                title="Megagroup",
+                username="mega",
+            ),
+            DiscoveredDialog(
+                telegram_entity_id=-1002,
+                entity_type="broadcast_channel",
+                title="News",
+            ),
+        ]
+
+    async with session_scope(session_factory) as session:
+        await create_summary_userbot(
+            session,
+            secret_service=secret_service,
+            name="Main userbot",
+            api_id=12345,
+            api_hash="api-hash-secret",
+            phone_number="+15550001111",
+            session_string="string-session-secret",
+            enabled=True,
+        )
+
+    app = _web_app(session_factory, bootstrap_config, discovery_provider=discover_dialogs)
+    response = await _request(app, "POST", "/api/groups/refresh-userbot")
+    groups = await _request(app, "GET", "/api/groups")
+
+    assert response.status_code == 200
+    assert observed_runtime == {"api_id": 12345}
+    assert response.json() == {
+        "discovered": 1,
+        "created": 1,
+        "updated": 0,
+        "ignored": 1,
+    }
+    assert groups.status_code == 200
+    assert groups.json()["items"][0]["title"] == "Megagroup"
+    assert groups.json()["items"][0]["settings"]["enabled"] is False
+    rendered = response.text + groups.text
+    assert "api-hash-secret" not in rendered
+    assert "string-session-secret" not in rendered
+    assert bootstrap_config.settings_encryption_key not in rendered
+    assert ADMIN_TOKEN not in rendered
+
+
+async def test_refresh_userbot_groups_uses_default_telethon_provider(session_factory, monkeypatch) -> None:
+    bootstrap_config = _bootstrap_config()
+    secret_service = SecretService(bootstrap_config.settings_encryption_key)
+    observed = {}
+
+    def fake_provider(config):
+        observed["api_id"] = config.api_id
+        observed["session_string"] = config.session_string
+
+        async def discover_dialogs():
+            return [
+                DiscoveredDialog(
+                    telegram_entity_id=-2001,
+                    entity_type="group",
+                    title="Default provider group",
+                )
+            ]
+
+        return discover_dialogs
+
+    monkeypatch.setattr(
+        "summary_relay_bot.web.deps.create_telethon_dialog_discovery_provider",
+        fake_provider,
+    )
+    async with session_scope(session_factory) as session:
+        await create_summary_userbot(
+            session,
+            secret_service=secret_service,
+            name="Main userbot",
+            api_id=12345,
+            api_hash="api-hash-secret",
+            phone_number="+15550001111",
+            session_string="string-session-secret",
+            enabled=True,
+        )
+
+    app = _web_app(session_factory, bootstrap_config)
+    response = await _request(app, "POST", "/api/groups/refresh-userbot")
+
+    assert response.status_code == 200
+    assert observed == {
+        "api_id": 12345,
+        "session_string": "string-session-secret",
+    }

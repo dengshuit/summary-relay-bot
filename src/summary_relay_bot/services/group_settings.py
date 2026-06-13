@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from summary_relay_bot.db.models import GroupChat, GroupSummarySettings
+from summary_relay_bot.db.models import GroupChat, GroupSummarySettings, SummaryUserbot
 from summary_relay_bot.db.repositories import get_group_by_chat_id, list_groups
 from summary_relay_bot.services.runtime_config import set_group_summary_settings
 
@@ -38,11 +38,12 @@ async def group_summary_settings(
     *,
     group: GroupChat,
 ) -> GroupSummarySettings | None:
-    return await session.scalar(
+    settings = await session.scalar(
         select(GroupSummarySettings)
         .options(selectinload(GroupSummarySettings.summary_profile))
-        .where(GroupSummarySettings.group_id == group.id)
+        .where(GroupSummarySettings.id == group.id)
     )
+    return settings.summary_settings if settings is not None else None
 
 
 async def enable_group_summary(
@@ -106,10 +107,9 @@ async def update_group_summary_interval(
 
 
 async def enabled_group_settings(session: AsyncSession) -> Sequence[GroupSummarySettings]:
-    result = await session.scalars(
-        select(GroupSummarySettings)
-        .options(selectinload(GroupSummarySettings.group))
-        .where(GroupSummarySettings.enabled.is_(True))
-        .order_by(GroupSummarySettings.group_id)
-    )
+    enabled_userbot = await session.scalar(select(SummaryUserbot).where(SummaryUserbot.enabled.is_(True)))
+    statement = select(GroupSummarySettings).where(GroupSummarySettings.enabled.is_(True))
+    if enabled_userbot is not None:
+        statement = statement.where(GroupSummarySettings.userbot_id == enabled_userbot.id)
+    result = await session.scalars(statement.order_by(GroupSummarySettings.id))
     return result.all()

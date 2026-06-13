@@ -89,6 +89,58 @@ command: ["sh", "-c", "alembic upgrade head && exec summary-relay-bot"]
 
 ## Common Mistakes
 
-<!-- Database-related mistakes your team has made -->
+### SummaryEntity compatibility aliases are not relationships
 
-(To be filled by the team)
+After the Telethon schema reset, `GroupChat` and `GroupSummarySettings` are
+compatibility aliases for `SummaryEntity`. `SummaryEntity.summary_settings` is
+a Python property, not an ORM relationship or a separate table.
+
+Do not join `GroupChat` to `GroupSummarySettings`; SQLAlchemy treats that as a
+self-join of the same mapped class and cannot infer the join side without an
+explicit alias. For group summary settings filters, use the direct
+`SummaryEntity` columns through `GroupChat`.
+
+#### Wrong
+
+```python
+select(GroupChat).outerjoin(GroupSummarySettings, GroupSummarySettings.group_id == GroupChat.id)
+```
+
+#### Correct
+
+```python
+select(GroupChat).where(GroupChat.enabled.is_(True))
+select(GroupChat).where(GroupChat.summary_profile_id == profile_id)
+```
+
+Tests must not assert that `select(GroupSummarySettings)` is empty to prove no
+settings row exists. That query now selects summary entities. Instead, assert
+the entity-level settings contract directly:
+
+```python
+assert group.summary_settings is None
+assert group.enabled is False
+assert group.interval_minutes is None
+assert group.summary_profile_id is None
+```
+
+Service helpers that expose optional settings must also apply this contract
+explicitly. Fetching the entity by id is not enough because it returns the
+discovered group row even when no summary settings have been configured.
+
+#### Wrong
+
+```python
+return await session.scalar(
+    select(GroupSummarySettings).where(GroupSummarySettings.id == group.id)
+)
+```
+
+#### Correct
+
+```python
+settings = await session.scalar(
+    select(GroupSummarySettings).where(GroupSummarySettings.id == group.id)
+)
+return settings.summary_settings if settings is not None else None
+```

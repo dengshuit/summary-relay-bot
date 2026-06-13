@@ -4,8 +4,9 @@ import httpx
 from sqlalchemy import select
 
 from summary_relay_bot.config import BootstrapConfig
-from summary_relay_bot.db.models import AuditLog, GroupChat, SummaryJob
+from summary_relay_bot.db.models import AuditLog, GroupChat, SummaryJob, SummaryResult
 from summary_relay_bot.db.repositories import (
+    create_summary_delivery_attempt,
     create_running_summary_job,
     ensure_summary_state,
     get_or_create_raw_update,
@@ -15,11 +16,20 @@ from summary_relay_bot.db.repositories import (
 from summary_relay_bot.db.session import session_scope
 from summary_relay_bot.services.runtime_config import create_llm_provider, create_summary_profile
 from summary_relay_bot.services.secrets import SecretService
+from summary_relay_bot.services import summary_jobs as summary_jobs_module
 from summary_relay_bot.web.app import create_web_app
 from summary_relay_bot.web.routes import groups as groups_route
 
 
 ADMIN_TOKEN = "webui-admin-secret"
+
+
+class FakeSummaryClient:
+    def __init__(self, config) -> None:
+        self.config = config
+
+    async def summarize_group_messages(self, *, group_title, group_messages) -> str:
+        return "Generated summary from web job"
 
 
 def _bootstrap_config() -> BootstrapConfig:
@@ -100,26 +110,27 @@ async def test_manual_summary_job_returns_202_and_can_be_polled_to_terminal_stat
         group = await _seed_group(session, secret_service)
         group_id = group.id
 
-    def fake_schedule_manual_summary_job(*, session_factory, secret_service, group_id, job_id) -> None:
-        async def mark_succeeded() -> None:
-            async with session_scope(session_factory) as session:
-                job = await session.get(SummaryJob, job_id)
-                group = await session.get(GroupChat, group_id)
-                assert job is not None
-                assert group is not None
-                job.status = "succeeded"
-                job.started_at = job.created_at
-                job.finished_at = job.created_at
-                job.prompt_version = "v7"
-                job.summary_profile_id = 1
-                job.llm_provider_id = 1
-                job.model = "claude-default"
+    scheduled: dict[str, object] = {}
 
-        import asyncio
-
-        asyncio.create_task(mark_succeeded())
+    def fake_schedule_manual_summary_job(
+        *,
+        session_factory,
+        secret_service,
+        group_id,
+        job_id,
+        schedule_notification=None,
+    ) -> None:
+        scheduled.update(
+            {
+                "session_factory": session_factory,
+                "secret_service": secret_service,
+                "group_id": group_id,
+                "job_id": job_id,
+            }
+        )
 
     monkeypatch.setattr(groups_route, "schedule_manual_summary_job", fake_schedule_manual_summary_job)
+    monkeypatch.setattr(summary_jobs_module, "PrivacyAwareSummaryClient", FakeSummaryClient)
     app = _web_app(session_factory, bootstrap_config)
 
     trigger = await _request(app, "POST", f"/api/groups/{group_id}/summary-jobs")
@@ -128,13 +139,33 @@ async def test_manual_summary_job_returns_202_and_can_be_polled_to_terminal_stat
     assert payload["job"]["status"] == "pending"
     assert payload["poll_url"] == f"/api/groups/{group_id}/summary-jobs/{payload['job']['id']}"
 
+    await summary_jobs_module.run_web_manual_summary_job(**scheduled)
+    async with session_scope(session_factory) as session:
+        summary_result = await session.scalar(select(SummaryResult))
+        assert summary_result is not None
+        await create_summary_delivery_attempt(
+            session,
+            summary_result=summary_result,
+            relay_bot_id=None,
+            target_chat_id=1001,
+            max_attempts=3,
+            timeout_seconds=60,
+            total_chunks=1,
+            status="succeeded",
+        )
+
     poll = await _request(app, "GET", payload["poll_url"])
     assert poll.status_code == 200
     assert poll.json()["status"] == "succeeded"
     assert poll.json()["provider"] == "Primary Claude"
     assert poll.json()["profile_name"] == "Default profile"
     assert poll.json()["model"] == "claude-default"
+    assert poll.json()["result"]["interval_start_sequence"] == 0
+    assert poll.json()["result"]["interval_end_sequence"] == 1
+    assert poll.json()["result"]["delivery"]["status"] == "succeeded"
+    assert poll.json()["result"]["delivery"]["max_attempts"] == 3
     rendered = trigger.text + poll.text
+    assert "Generated summary from web job" not in rendered
     assert "llm-job-secret" not in rendered
     assert "raw text should not leave job api" not in rendered
     assert ADMIN_TOKEN not in rendered

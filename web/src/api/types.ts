@@ -27,6 +27,39 @@ export interface BotValidationResponse {
   error_message: string | null;
 }
 
+export interface UserbotSecrets {
+  api_hash: SecretState;
+  phone_number: SecretState;
+  session: SecretState;
+  proxy_url: SecretState;
+}
+
+export interface Userbot {
+  id: number;
+  name: string;
+  api_id: number | null;
+  phone_number_redacted: string | null;
+  enabled: boolean;
+  auth_status: 'unconfigured' | 'code_sent' | 'password_required' | 'authorized' | 'revoked' | 'error';
+  runtime_status: 'stopped' | 'starting' | 'running' | 'reloading' | 'failed' | 'disabled';
+  telegram_user_id: number | null;
+  telegram_username: string | null;
+  telegram_display_name: string | null;
+  last_authorized_at: string | null;
+  last_started_at: string | null;
+  last_stopped_at: string | null;
+  last_error_type: string | null;
+  last_error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  secrets: UserbotSecrets;
+}
+
+export interface UserbotResponse {
+  active: number | null;
+  item: Userbot | null;
+}
+
 export interface LLMProvider {
   id: number;
   name: string;
@@ -66,11 +99,29 @@ export interface GroupSummarySettings {
   timezone: string;
 }
 
+export interface GroupDiscoveryRefreshResponse {
+  discovered: number;
+  created: number;
+  updated: number;
+  ignored: number;
+}
+
 export interface GroupLastSummary {
   status: 'pending' | 'running' | 'succeeded' | 'failed' | 'blocked';
   finished_at: string | null;
   error_type: string | null;
   error_message?: string | null;
+}
+
+export interface SummaryDelivery {
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'timeout';
+  attempt_count: number;
+  max_attempts: number;
+  total_chunks: number;
+  sent_chunks: number;
+  error_type: string | null;
+  error_message: string | null;
+  updated_at: string;
 }
 
 export interface GroupItem {
@@ -119,6 +170,7 @@ export interface SummaryJob {
     interval_start_sequence: number;
     interval_end_sequence: number;
     created_at: string;
+    delivery: SummaryDelivery | null;
   } | null;
 }
 
@@ -230,6 +282,7 @@ export interface HistoricalSummary {
   group_username: string | null;
   chat_id: number;
   content: string | null;
+  delivery: SummaryDelivery | null;
 }
 
 export interface PrivateUser {

@@ -275,6 +275,17 @@ class GroupSummaryStateSchema(BaseModel):
     last_summary_at: datetime | None = None
 
 
+class SummaryDeliverySchema(BaseModel):
+    status: str
+    attempt_count: int
+    max_attempts: int
+    total_chunks: int
+    sent_chunks: int
+    error_type: str | None = None
+    error_message: str | None = None
+    updated_at: datetime
+
+
 class SummaryJobResultSchema(BaseModel):
     id: int
     prompt_version: str
@@ -284,6 +295,7 @@ class SummaryJobResultSchema(BaseModel):
     interval_start_sequence: int
     interval_end_sequence: int
     created_at: datetime
+    delivery: SummaryDeliverySchema | None = None
 
 
 class SummaryJobSchema(BaseModel):
@@ -324,6 +336,13 @@ class GroupListItemSchema(BaseModel):
 class GroupListResponse(BaseModel):
     items: list[GroupListItemSchema]
     next_cursor: str | None = None
+
+
+class GroupDiscoveryRefreshResponse(BaseModel):
+    discovered: int
+    created: int
+    updated: int
+    ignored: int
 
 
 class GroupDetailSchema(GroupListItemSchema):
@@ -399,6 +418,7 @@ class HistoricalSummarySchema(BaseModel):
     error_type: str | None = None
     error_message: str | None = None
     content: str | None = None
+    delivery: SummaryDeliverySchema | None = None
 
 
 class HistoricalSummaryListResponse(BaseModel):
@@ -454,3 +474,73 @@ class BotRuntimeReloadResponse(BaseModel):
     accepted: bool
     status: str
     detail: str
+
+
+class UserbotSecretsSchema(BaseModel):
+    api_hash: SecretStateSchema
+    phone_number: SecretStateSchema
+    session: SecretStateSchema
+    proxy_url: SecretStateSchema
+
+
+class UserbotSchema(BaseModel):
+    id: int
+    name: str
+    api_id: int | None = None
+    phone_number_redacted: str | None = None
+    enabled: bool
+    auth_status: str
+    runtime_status: str
+    telegram_user_id: int | None = None
+    telegram_username: str | None = None
+    telegram_display_name: str | None = None
+    last_authorized_at: datetime | None = None
+    last_started_at: datetime | None = None
+    last_stopped_at: datetime | None = None
+    last_error_type: str | None = None
+    last_error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    secrets: UserbotSecretsSchema
+
+
+class UserbotResponse(BaseModel):
+    active: int | None
+    item: UserbotSchema | None = None
+
+
+class UserbotCreateRequest(BaseModel):
+    name: str
+    api_id: int
+    api_hash: str
+    phone_number: str
+    proxy_url: str | None = None
+    enabled: bool = True
+
+
+class UserbotUpdateRequest(BaseModel):
+    id: int
+    name: str | None = None
+    api_id: int | None = None
+    api_hash: str | None = None
+    phone_number: str | None = None
+    proxy_url: str | None = None
+    enabled: bool | None = None
+
+
+class UserbotSendCodeRequest(BaseModel):
+    id: int | None = None
+    api_id: int | None = None
+    api_hash: str | None = None
+    phone_number: str | None = None
+    proxy_url: str | None = None
+
+
+class UserbotSignInRequest(BaseModel):
+    id: int | None = None
+    code: str
+
+
+class UserbotSubmitPasswordRequest(BaseModel):
+    id: int | None = None
+    password: str

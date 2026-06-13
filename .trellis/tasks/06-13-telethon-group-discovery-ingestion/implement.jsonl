@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/web-api-contracts.md", "reason": "Groups API contract and safe management endpoint patterns"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "SQLAlchemy async schema and migration assumptions"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "No secret/raw payload logging constraints"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Feature spans Telethon adapter, service, database, API, and WebUI"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse existing group/settings and summary-message storage patterns"}
