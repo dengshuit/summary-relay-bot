@@ -128,7 +128,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="fixed bottom-4 right-4 z-[100] flex w-[calc(100vw-2rem)] max-w-[388px] flex-col gap-2.5 pointer-events-none sm:bottom-6 sm:right-6">
+      <div className="fixed left-1/2 top-4 z-[100] flex w-[calc(100vw-2rem)] max-w-[388px] -translate-x-1/2 flex-col gap-2.5 pointer-events-none sm:top-6">
         <AnimatePresence initial={false}>
           {toasts.map((toast) => {
             const Icon = toneIcon[toast.tone];
@@ -138,9 +138,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               <motion.div
                 key={toast.id}
                 role={toast.tone === 'error' ? 'alert' : 'status'}
-                initial={{ opacity: 0, x: 14, y: 8, scale: 0.98 }}
+                initial={{ opacity: 0, y: -8, scale: 0.98 }}
                 animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
-                exit={{ opacity: 0, x: 10, y: 6, scale: 0.98 }}
+                exit={{ opacity: 0, y: -6, scale: 0.98 }}
                 transition={{ duration: 0.18, ease: 'easeOut' }}
                 className={`pointer-events-auto relative overflow-hidden rounded-xl border ${style.border} bg-white text-gray-900 shadow-[0_14px_30px_rgba(31,35,41,0.12),0_2px_6px_rgba(31,35,41,0.06)]`}
               >
