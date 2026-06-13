@@ -718,3 +718,36 @@ Unified admin feedback into Toast notifications, added status tone differentiati
 ### Next Steps
 
 - None - task complete
+
+
+## Session 22: Telethon group summary refactor
+
+**Date**: 2026-06-13
+**Task**: Telethon group summary refactor
+**Branch**: `master`
+
+### Summary
+
+Completed the Telethon userbot group-summary refactor across schema, private relay cleanup, userbot auth, group discovery and update ingestion, summary result persistence, bounded notification delivery, WebUI/docs, and final validation.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d80b89f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
