@@ -1,23 +1,18 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import { GroupDetail as GroupDetailType, SummaryProfile, SummaryJob } from '../api/types';
+import { GroupDetail as GroupDetailType, SummaryProfile, SummaryTestTask } from '../api/types';
 import CustomSelect from '../components/CustomSelect';
+import TaskProgressPanel from '../components/TaskProgressPanel';
 import {
   ArrowLeft,
   RefreshCw,
   Play,
-  Settings,
-  History,
   CheckCircle2,
-  XCircle,
   AlertTriangle,
-  Clock,
-  Cpu,
   Timer,
   Globe,
   Loader2,
-  Lock
+  X
 } from 'lucide-react';
 import { useToast } from '../components/Toast';
 
@@ -26,9 +21,14 @@ interface GroupDetailViewProps {
   onBack: () => void;
 }
 
+const TEST_TASK_TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'canceled']);
+
+function isTerminalTestTask(task: SummaryTestTask | null): boolean {
+  return !!task && TEST_TASK_TERMINAL_STATUSES.has(task.status);
+}
+
 export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
   const showToast = useToast();
-  const navigate = useNavigate();
   const [data, setData] = useState<GroupDetailType | null>(null);
   const [profiles, setProfiles] = useState<SummaryProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,8 +43,16 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
 
   // Manual trigger states
   const [triggeringJob, setTriggeringJob] = useState(false);
-  const [pollingStatus, setPollingStatus] = useState<string | null>(null);
-  const pollIntervalRef = useRef<any>(null);
+  const [testTask, setTestTask] = useState<SummaryTestTask | null>(null);
+  const [showResultDialog, setShowResultDialog] = useState(false);
+  const pollIntervalRef = useRef<ReturnType<typeof window.setInterval> | null>(null);
+
+  const clearPolling = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  };
 
   const fetchGroupDetail = async () => {
     try {
@@ -63,7 +71,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
 
       // If there is an active job in detail upon loading, start polling it
       if (detail.active_job) {
-        startPollingJob(`/api/groups/${groupId}/summary-jobs/${detail.active_job.id}`);
+        startPollingProductionJob(`/api/groups/${groupId}/summary-jobs/${detail.active_job.id}`);
       }
     } catch (err: any) {
       setErrorHeader(err.message || '获取群组特化详情发生了错误');
@@ -75,7 +83,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
   useEffect(() => {
     fetchGroupDetail();
     return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      clearPolling();
     };
   }, [groupId]);
 
@@ -107,63 +115,117 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
   };
 
   const handleTriggerSummary = async () => {
-    if (triggeringJob || data?.active_job) return;
+    if (triggeringJob || data?.active_job || (testTask && !isTerminalTestTask(testTask))) return;
     setTriggeringJob(true);
-    setPollingStatus('调度中 (Accepted)...');
+    setShowResultDialog(false);
     try {
-      const res = await api.triggerGroupSummary(groupId);
-      // start real-time polling loop
-      startPollingJob(res.poll_url);
+      const res = await api.triggerGroupSummaryTest(groupId);
+      setTestTask(res.task);
+      startPollingTestTask(res.poll_url);
     } catch (err: any) {
       showToast({
         tone: 'error',
-        title: '手动摘要触发失败',
+        title: '测试摘要触发失败',
         detail: err.message
       });
       setTriggeringJob(false);
-      setPollingStatus(null);
     }
   };
 
-  const startPollingJob = (pollUrl: string) => {
-    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+  const startPollingTestTask = (pollUrl: string) => {
+    clearPolling();
+    setTriggeringJob(true);
 
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const task = await api.pollSummaryTestTask(pollUrl);
+        setTestTask(task);
+
+        if (isTerminalTestTask(task)) {
+          clearPolling();
+          setTriggeringJob(false);
+
+          if (task.status === 'succeeded') {
+            setShowResultDialog(true);
+            showToast({
+              tone: 'success',
+              title: '测试摘要已生成',
+              detail: '已生成页面预览结果，未推送也未改动游标。'
+            });
+          } else if (task.status === 'failed') {
+            showToast({
+              tone: 'error',
+              title: `测试摘要失败${task.error_type ? `: ${task.error_type}` : ''}`,
+              detail: task.error_message || '未知内部错误'
+            });
+          } else {
+            showToast({
+              tone: 'info',
+              title: '测试摘要已取消'
+            });
+          }
+        }
+      } catch (err: any) {
+        clearPolling();
+        setTriggeringJob(false);
+        setTestTask((current) => current
+          ? {
+              ...current,
+              status: 'failed',
+              step: 'completed',
+              error_type: 'poll_failed',
+              error_message: err.message || '轮询任务状态失败',
+              finished_at: new Date().toISOString()
+            }
+          : current);
+      }
+    }, 2000);
+  };
+
+  const startPollingProductionJob = (pollUrl: string) => {
+    clearPolling();
     setTriggeringJob(true);
 
     pollIntervalRef.current = setInterval(async () => {
       try {
         const job = await api.pollJob(pollUrl);
-        setPollingStatus(`生成中 (Status: ${job.status})...`);
-
         if (job.status === 'succeeded' || job.status === 'failed' || job.status === 'blocked') {
-          clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
+          clearPolling();
           setTriggeringJob(false);
-          setPollingStatus(null);
-
-          if (job.status === 'succeeded') {
-            showToast({
-              tone: 'success',
-              title: '群聊纪要已生成',
-              detail: '摘要已成功投递进群。'
-            });
-          } else {
+          if (job.status === 'failed' || job.status === 'blocked') {
             showToast({
               tone: 'error',
-              title: `大模型处理已中止${job.error_type ? `: ${job.error_type}` : ''}`,
+              title: `摘要任务已中止${job.error_type ? `: ${job.error_type}` : ''}`,
               detail: job.error_message || '未知内部错误'
             });
           }
-          fetchGroupDetail(); // Refresh logs and stats
+          fetchGroupDetail();
         }
-      } catch (err) {
-        // fail silently or stop polling on fatal
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
+      } catch {
+        clearPolling();
         setTriggeringJob(false);
-        setPollingStatus(null);
       }
     }, 2000);
+  };
+
+  const handleCancelTestTask = async () => {
+    if (!testTask || isTerminalTestTask(testTask)) return;
+    try {
+      const canceled = await api.cancelSummaryTestTask(groupId, testTask.id);
+      clearPolling();
+      setTriggeringJob(false);
+      setTestTask(canceled);
+      showToast({
+        tone: 'info',
+        title: '测试摘要已取消'
+      });
+    } catch (err: any) {
+      showToast({
+        tone: 'error',
+        title: '取消失败',
+        detail: err.message
+      });
+    }
   };
 
   if (loading && !data) {
@@ -192,6 +254,10 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
       </div>
     );
   }
+
+  const testTaskActive = testTask && !isTerminalTestTask(testTask);
+  const summaryActionDisabled = triggeringJob || !!data.active_job || !!testTaskActive;
+  const testTaskLongRunning = !!testTaskActive && Date.now() - Date.parse(testTask.created_at) > 180000;
 
   return (
     <div className="space-y-6 w-full max-w-[96%] xl:max-w-[93%] 2xl:max-w-[1590px] mx-auto p-4 sm:p-6 font-sans">
@@ -234,26 +300,39 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
           {/* Manual Trigger button */}
           <button
             onClick={handleTriggerSummary}
-            disabled={triggeringJob || !!data.active_job}
+            disabled={summaryActionDisabled}
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-sm shrink-0"
           >
             {triggeringJob ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-            <span>立即生成当前摘要</span>
+            <span>测试最近 50 条</span>
           </button>
         </div>
       </div>
 
-      {/* Warning banner if another summary job in-flight */}
-      {(data.active_job || triggeringJob) && (
-        <div className="bg-blue-50 border border-blue-200 text-blue-800 rounded-xl p-4 flex gap-3 animate-pulse">
-          <Loader2 className="w-5 h-5 text-blue-500 shrink-0 mt-0.5 animate-spin" />
-          <div className="text-xs leading-relaxed">
-            <p className="font-bold text-blue-900">该群有摘要正在生成，暂不能重复触发。</p>
-            <p className="text-blue-700 mt-0.5">
-              系统当前正在检索最新消息、进行分级汇编并发布推送大纲。... <strong>当前轮询进度: {pollingStatus || '编译模型上下文'}</strong>
-            </p>
-          </div>
-        </div>
+      {testTask && (
+        <TaskProgressPanel
+          status={testTask.status}
+          step={testTask.step}
+          messageCount={testTask.message_count}
+          sequenceRange={testTask.sequence_range}
+          errorType={testTask.error_type}
+          errorMessage={testTask.error_message}
+          isLongRunning={testTaskLongRunning}
+          onRetry={testTask.status === 'failed' ? handleTriggerSummary : undefined}
+          onCancel={testTaskActive ? handleCancelTestTask : undefined}
+          onViewResult={testTask.status === 'succeeded' ? () => setShowResultDialog(true) : undefined}
+        />
+      )}
+
+      {!testTask && data.active_job && (
+        <TaskProgressPanel
+          status={data.active_job.status === 'pending' ? 'pending' : 'running'}
+          step={data.active_job.status === 'pending' ? 'queued' : 'running'}
+          sequenceRange={data.active_job.sequence_range}
+          errorType={data.active_job.error_type}
+          errorMessage={data.active_job.error_message}
+          isLongRunning={false}
+        />
       )}
 
       {/* 2-Column Grid for forms and status layout */}
@@ -396,6 +475,60 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
           </div>
         </div>
       </div>
+
+      {showResultDialog && testTask?.status === 'succeeded' && (
+        <div
+          className="fixed inset-0 z-50 bg-black/45 backdrop-blur-xs flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="summary-test-result-title"
+          onClick={() => setShowResultDialog(false)}
+        >
+          <div
+            className="w-full max-w-3xl max-h-[82vh] bg-white border border-[#e4e6ec] rounded-lg shadow-xl overflow-hidden flex flex-col"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-[#e4e6ec] bg-[#fbfbfe] flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <h3 id="summary-test-result-title" className="text-sm font-bold text-gray-900">
+                    测试摘要结果
+                  </h3>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  最近 {testTask.message_count ?? 0} 条消息
+                  {testTask.sequence_range ? ` · #${testTask.sequence_range}` : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowResultDialog(false)}
+                className="p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+                title="关闭"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto bg-white">
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-4 text-sm leading-7 text-gray-800 whitespace-pre-wrap select-text">
+                {testTask.summary_text || '本次测试没有生成摘要内容。'}
+              </div>
+            </div>
+
+            <div className="px-5 py-3 border-t border-[#e4e6ec] bg-white flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowResultDialog(false)}
+                className="px-4 py-2 rounded-md bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

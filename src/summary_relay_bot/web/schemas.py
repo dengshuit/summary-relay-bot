@@ -344,6 +344,27 @@ class TriggerSummaryJobResponse(BaseModel):
     poll_url: str
 
 
+class SummaryTestTaskSchema(BaseModel):
+    id: str
+    group_id: int
+    chat_id: int
+    status: str
+    step: str
+    message_count: int | None = None
+    sequence_range: str | None = None
+    summary_text: str | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class TriggerSummaryTestTaskResponse(BaseModel):
+    task: SummaryTestTaskSchema
+    poll_url: str
+
+
 class AuditLogSchema(BaseModel):
     id: int
     actor: str

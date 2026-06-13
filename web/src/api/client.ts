@@ -10,7 +10,8 @@ import {
   GroupSummarySettings,
   HistoricalSummary,
   PrivateRelaysResponse,
-  SummaryJob
+  SummaryJob,
+  SummaryTestTask
 } from './types';
 
 const TOKEN_KEY = 'summary_relay_bot_admin_token';
@@ -229,9 +230,21 @@ export const api = {
     return apiRequest<{ job: SummaryJob; poll_url: string }>('POST', `/api/groups/${id}/summary-jobs`);
   },
 
+  async triggerGroupSummaryTest(id: number | string): Promise<{ task: SummaryTestTask; poll_url: string }> {
+    return apiRequest<{ task: SummaryTestTask; poll_url: string }>('POST', `/api/groups/${id}/summary-test-tasks`);
+  },
+
   // Poll job status via custom poll_url or standardized route
   async pollJob(pollUrl: string): Promise<SummaryJob> {
     return apiRequest<SummaryJob>('GET', pollUrl);
+  },
+
+  async pollSummaryTestTask(pollUrl: string): Promise<SummaryTestTask> {
+    return apiRequest<SummaryTestTask>('GET', pollUrl);
+  },
+
+  async cancelSummaryTestTask(groupId: number | string, taskId: string): Promise<SummaryTestTask> {
+    return apiRequest<SummaryTestTask>('POST', `/api/groups/${groupId}/summary-test-tasks/${taskId}/cancel`);
   },
 
   // Historical summaries list

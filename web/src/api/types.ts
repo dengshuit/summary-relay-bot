@@ -122,6 +122,22 @@ export interface SummaryJob {
   } | null;
 }
 
+export interface SummaryTestTask {
+  id: string;
+  group_id: number;
+  chat_id: number;
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled';
+  step: 'submitted' | 'queued' | 'running' | 'generating' | 'completed';
+  message_count: number | null;
+  sequence_range: string | null;
+  summary_text: string | null;
+  error_type: string | null;
+  error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
 export interface GroupDetail extends GroupItem {
   summary_state: {
     last_summary_sequence: number;

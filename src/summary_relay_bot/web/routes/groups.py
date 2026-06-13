@@ -39,7 +39,17 @@ from summary_relay_bot.services.summary_jobs import (
     get_summary_job_status,
     schedule_manual_summary_job,
 )
-from summary_relay_bot.web.deps import get_actor, get_secret_service, get_session_factory
+from summary_relay_bot.services.summary_test_tasks import (
+    SummaryTestTaskRegistry,
+    SummaryTestTaskRegistryFullError,
+    SummaryTestTaskView,
+)
+from summary_relay_bot.web.deps import (
+    get_actor,
+    get_secret_service,
+    get_session_factory,
+    get_summary_test_task_registry,
+)
 from summary_relay_bot.web.errors import api_error_response
 from summary_relay_bot.web.schemas import (
     EffectiveSummaryProfileSchema,
@@ -52,7 +62,9 @@ from summary_relay_bot.web.schemas import (
     GroupSummaryStateSchema,
     SummaryJobResultSchema,
     SummaryJobSchema,
+    SummaryTestTaskSchema,
     TriggerSummaryJobResponse,
+    TriggerSummaryTestTaskResponse,
 )
 
 
@@ -178,6 +190,24 @@ def _job_schema(
         error_type=job.error_type,
         error_message=job.error_message,
         result=_job_result_schema(job.result),
+    )
+
+
+def _summary_test_task_schema(task: SummaryTestTaskView) -> SummaryTestTaskSchema:
+    return SummaryTestTaskSchema(
+        id=task.id,
+        group_id=task.group_id,
+        chat_id=task.chat_id,
+        status=task.status,
+        step=task.step,
+        message_count=task.message_count,
+        sequence_range=task.sequence_range,
+        summary_text=task.summary_text,
+        error_type=task.error_type,
+        error_message=task.error_message,
+        created_at=task.created_at,
+        started_at=task.started_at,
+        finished_at=task.finished_at,
     )
 
 
@@ -509,6 +539,76 @@ async def patch_group_summary_settings(
             is not None
         ],
     )
+
+
+@router.post("/{group_id}/summary-test-tasks", response_model=TriggerSummaryTestTaskResponse, status_code=202)
+async def post_group_summary_test_task(
+    group_id: int,
+    response: Response,
+    session_factory: Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)],
+    secret_service: Annotated[SecretService, Depends(get_secret_service)],
+    registry: Annotated[SummaryTestTaskRegistry, Depends(get_summary_test_task_registry)],
+) -> TriggerSummaryTestTaskResponse | JSONResponse:
+    async with session_factory() as session:
+        group = await _get_group(session, group_id)
+        if group is None:
+            return api_error_response(
+                status_code=404,
+                code="not_found",
+                message="group not found",
+            )
+        scheduled_group_id = group.id
+        scheduled_chat_id = group.chat_id
+
+    try:
+        task = await registry.create_task(
+            session_factory=session_factory,
+            secret_service=secret_service,
+            group_id=scheduled_group_id,
+            chat_id=scheduled_chat_id,
+        )
+    except SummaryTestTaskRegistryFullError:
+        return api_error_response(
+            status_code=409,
+            code="summary_test_task_busy",
+            message="测试摘要任务已满，请稍后重试",
+        )
+
+    poll_url = f"/api/groups/{group_id}/summary-test-tasks/{task.id}"
+    response.status_code = 202
+    return TriggerSummaryTestTaskResponse(task=_summary_test_task_schema(task), poll_url=poll_url)
+
+
+@router.get("/{group_id}/summary-test-tasks/{task_id}", response_model=SummaryTestTaskSchema)
+async def get_group_summary_test_task(
+    group_id: int,
+    task_id: str,
+    registry: Annotated[SummaryTestTaskRegistry, Depends(get_summary_test_task_registry)],
+) -> SummaryTestTaskSchema | JSONResponse:
+    task = await registry.get_task(task_id)
+    if task is None or task.group_id != group_id:
+        return api_error_response(
+            status_code=404,
+            code="not_found",
+            message="summary test task not found",
+        )
+    return _summary_test_task_schema(task)
+
+
+@router.post("/{group_id}/summary-test-tasks/{task_id}/cancel", response_model=SummaryTestTaskSchema)
+async def post_group_summary_test_task_cancel(
+    group_id: int,
+    task_id: str,
+    registry: Annotated[SummaryTestTaskRegistry, Depends(get_summary_test_task_registry)],
+) -> SummaryTestTaskSchema | JSONResponse:
+    task = await registry.cancel_task(task_id)
+    if task is None or task.group_id != group_id:
+        return api_error_response(
+            status_code=404,
+            code="not_found",
+            message="summary test task not found",
+        )
+    return _summary_test_task_schema(task)
 
 
 @router.post("/{group_id}/summary-jobs", response_model=TriggerSummaryJobResponse, status_code=202)

@@ -357,6 +357,21 @@ async def messages_after_sequence(
     return result.all()
 
 
+async def latest_group_messages(
+    session: AsyncSession,
+    *,
+    group: GroupChat,
+    limit: int,
+) -> Sequence[GroupMessage]:
+    result = await session.scalars(
+        select(GroupMessage)
+        .where(GroupMessage.group_id == group.id)
+        .order_by(GroupMessage.id.desc())
+        .limit(limit)
+    )
+    return list(reversed(result.all()))
+
+
 async def create_running_summary_job(
     session: AsyncSession,
     *,

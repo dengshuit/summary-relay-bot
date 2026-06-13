@@ -56,6 +56,32 @@ body {
   outline: none;
 }
 
+.task-progress-indeterminate {
+  animation: task-progress-indeterminate 1.35s ease-in-out infinite;
+  transform-origin: left center;
+}
+
+@keyframes task-progress-indeterminate {
+  0% {
+    transform: translateX(-120%) scaleX(0.72);
+  }
+  50% {
+    transform: translateX(120%) scaleX(1);
+  }
+  100% {
+    transform: translateX(320%) scaleX(0.72);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-progress-indeterminate {
+    animation: none;
+    transform: none;
+    width: 100%;
+    opacity: 0.65;
+  }
+}
+
 /* Custom Scrollbar for list panels */
 ::-webkit-scrollbar {
   width: 6px;

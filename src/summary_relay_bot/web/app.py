@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from summary_relay_bot.config import AppConfig, BootstrapConfig
 from summary_relay_bot.services.secrets import SecretService
+from summary_relay_bot.services.summary_test_tasks import SummaryTestTaskRegistry
 from summary_relay_bot.services.telegram_runtime import TelegramRuntimeManager
 from summary_relay_bot.web.auth import require_admin_token
 from summary_relay_bot.web.errors import (
@@ -45,6 +46,7 @@ def create_web_app(
     )
     app.state.session_factory = session_factory
     app.state.secret_service = secret_service
+    app.state.summary_test_task_registry = SummaryTestTaskRegistry()
     app.state.telegram_startup = telegram_startup
     app.state.telegram_runtime = telegram_runtime
     app.add_exception_handler(WebUnauthorizedError, unauthorized_exception_handler)

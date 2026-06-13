@@ -242,6 +242,9 @@ Use service-layer validation for field-specific safe messages, and never include
 - `PATCH /api/groups/{group_id}/summary-settings`
 - `POST /api/groups/{group_id}/summary-jobs`
 - `GET /api/groups/{group_id}/summary-jobs/{job_id}`
+- `POST /api/groups/{group_id}/summary-test-tasks`
+- `GET /api/groups/{group_id}/summary-test-tasks/{task_id}`
+- `POST /api/groups/{group_id}/summary-test-tasks/{task_id}/cancel`
 - `GET /api/summaries`
 - `GET /api/private-relays`
 - `GET /api/audit-logs`
@@ -259,7 +262,13 @@ Use service-layer validation for field-specific safe messages, and never include
 - Group list/detail `effective_profile` includes display-ready `id`, `name`, `model`, and `provider`.
 - `PATCH /api/groups/{group_id}/summary-settings` returns the full updated `GroupDetail`, not only the settings object.
 - Summary job responses include `sequence_range`, `provider`, `profile_name`, `model`, and `result` so the WebUI does not need to reconstruct labels from internal IDs.
-- Manual summary trigger returns `poll_url` pointing to `/api/groups/{group_id}/summary-jobs/{job_id}`. Do not add duplicate `/api/summary-jobs/{groupId}/{jobId}/poll` routes.
+- Production summary job trigger returns `poll_url` pointing to `/api/groups/{group_id}/summary-jobs/{job_id}`. Do not add duplicate `/api/summary-jobs/{groupId}/{jobId}/poll` routes.
+- WebUI group-detail "test summary" must use `/api/groups/{group_id}/summary-test-tasks`, not `/api/groups/{group_id}/summary-jobs`.
+- Summary test tasks are process-memory tasks, not database jobs. They must not create `summary_jobs` or `summary_results`, must not advance `summary_state`, and must not call Telegram delivery.
+- Summary test tasks summarize the latest 50 group messages at most, ordered chronologically before sending to the privacy-aware summary client.
+- Summary test task responses may expose generated `summary_text`, `message_count`, `sequence_range`, safe status fields, and safe error metadata. They must not expose raw source group message text, raw Telegram update payloads, LLM API keys, Bot tokens, admin tokens, or encryption keys.
+- Summary test task registry is bounded: maximum 5 entries per Web API process, terminal tasks expire after 30 minutes, oldest terminal tasks may be evicted when making room, and a full registry with only active tasks rejects new work.
+- Summary test task polling returns `pending | running | succeeded | failed | canceled` plus lifecycle step `submitted | queued | running | generating | completed`. Frontend should keep polling long-running tasks and display "still processing" rather than converting elapsed time into failure.
 - `GET /api/summaries` returns generated historical summaries with group metadata, job metadata, provider/profile display fields, `content`, and cursor pagination. `content` comes from generated summary output, never raw source group messages.
 - `GET /api/private-relays` is read-only and returns bounded private message previews, safe private-user metadata, reply-map metadata, delivery status fields, aggregate stats, and cursor pagination. It must not expose raw Telegram update payloads.
 - Database IDs remain numeric in API data. Frontend controls that require string values stringify only at the component boundary.
@@ -270,26 +279,50 @@ Use service-layer validation for field-specific safe messages, and never include
 - Invalid cursor, limit, status, direction, or date filter -> `400 validation_error`.
 - Missing group or summary job -> `404 not_found`.
 - Manual summary conflict -> `409 conflict`.
+- Missing summary test task -> `404 not_found`.
+- Full summary test task registry -> `409 summary_test_task_busy`.
 - FastAPI request validation errors must use the redacted `request validation failed` response and must not echo request input.
 
 ### 5. Good/Base/Bad Cases
 
 - Good: Dashboard uses `/api/system/reload-bot-runtime` for pending Bot runtime config and displays backend-provided trend/distribution data directly.
 - Good: GroupDetail polls `/api/groups/{group_id}/summary-jobs/{job_id}` until the returned job reaches a terminal state.
+- Good: GroupDetail test summary creates `/api/groups/{group_id}/summary-test-tasks`, polls the returned `poll_url`, displays generated `summary_text`, and leaves production cursor/history unchanged.
 - Good: Summaries exposes generated `summary_results.summary_text` as `content` without source message bodies.
 - Good: PrivateRelays exposes bounded `text_preview` / `caption_preview` to the authenticated admin UI without raw update payloads.
 - Base: nullable group titles, profile names, providers, and models are valid; clients should show fallback labels.
+- Base: summary test task result is unavailable after process restart or terminal-task expiry; callers should treat missing task as not found.
 - Bad: a frontend mock server or mock fallback path becoming the normal WebUI API contract.
 - Bad: converting audit payload objects to JSON strings in the backend or parsing them as strings in the frontend.
+- Bad: using `/api/groups/{group_id}/summary-jobs` for WebUI test summaries; that path persists production job history and may affect cursors.
 
 ### 6. Tests Required
 
 - Dashboard empty-state and populated-state tests including chart arrays, provider display fields, Telegram identity, and secret redaction.
 - Group list/detail/settings/job tests covering display fields, auth, conflicts, and polling URL shape.
+- Summary test task tests covering auth, latest-50 selection, no cursor advance, no `summary_jobs` / `summary_results`, safe failure metadata, and bounded registry behavior.
 - Historical summaries tests covering content, filters, pagination, auth, and no raw message/secret leaks.
 - Private relay tests covering previews, filters, pagination, stats, auth, and no raw update/secret leaks.
 - Audit log tests covering JSON object payloads and redaction.
 - Frontend typecheck and production build against the real backend contract.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```typescript
+await apiRequest('POST', `/api/groups/${groupId}/summary-jobs`);
+```
+
+Using production summary jobs for a WebUI test summary creates historical job rows and can affect production cursor semantics.
+
+#### Correct
+
+```typescript
+const { task, poll_url } = await apiRequest('POST', `/api/groups/${groupId}/summary-test-tasks`);
+```
+
+Use the process-memory test task endpoint for WebUI preview/test summaries so the result can be displayed without Telegram delivery, cursor advance, or historical summary records.
 
 ## Scenario: WebUI Static Deployment
 
