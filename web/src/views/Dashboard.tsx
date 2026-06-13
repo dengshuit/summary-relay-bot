@@ -46,7 +46,7 @@ function getWelcomeState(now: Date): WelcomeState {
   if (hour >= 5 && hour < 12) {
     return {
       greeting: '早上好, 管理员',
-      detail: '新一天的 Telegram summary-relay 守护已就绪。',
+      detail: '新一天的 Telegram 摘要服务已就绪。',
       Icon: Sunrise,
       iconClassName: 'text-amber-500'
     };
@@ -64,7 +64,7 @@ function getWelcomeState(now: Date): WelcomeState {
   if (hour >= 18 && hour < 22) {
     return {
       greeting: '晚上好, 管理员',
-      detail: '晚间群组摘要与消息中转正在持续守护。',
+      detail: '晚间群组摘要与消息中转正在运行。',
       Icon: Sunset,
       iconClassName: 'text-violet-500'
     };
@@ -72,7 +72,7 @@ function getWelcomeState(now: Date): WelcomeState {
 
   return {
     greeting: '夜间好, 管理员',
-    detail: '夜间低噪声守护中，关键摘要任务会继续执行。',
+    detail: '夜间低噪声运行中，关键摘要任务会继续执行。',
     Icon: Moon,
     iconClassName: 'text-slate-500'
   };
@@ -156,7 +156,7 @@ export default function Dashboard({ setTab }: DashboardProps) {
       <div className="p-6 bg-red-50 border border-red-200 rounded-xl text-center flex flex-col items-center justify-center min-h-[300px] gap-2">
         <AlertTriangle className="w-10 h-10 text-red-500" />
         <p className="font-semibold text-red-700">加载失败</p>
-        <p className="text-xs text-red-600">{error || '出现未知内部错误'}</p>
+        <p className="text-xs text-red-600">{error || '出现未知错误'}</p>
         <button
           onClick={fetchDashboardData}
           className="mt-4 px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold cursor-pointer"
@@ -262,9 +262,9 @@ export default function Dashboard({ setTab }: DashboardProps) {
           <div className="flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-gray-400 shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm font-semibold text-gray-900">配置变更挂起：需要重新加载 Bot 运行时</p>
+              <p className="text-sm font-semibold text-gray-900">配置变更待应用</p>
               <p className="text-xs text-gray-500 mt-1">
-                您可以选择立即应用配置到 Telegram polling 运行时。Web API 进程不会重启。
+                您可以立即应用最新配置，当前页面会保持可用。
               </p>
             </div>
           </div>
@@ -561,7 +561,7 @@ export default function Dashboard({ setTab }: DashboardProps) {
               onClick={() => setTab('audit-logs')}
               className="text-xs text-gray-500 hover:text-gray-900 hover:underline font-semibold"
             >
-              完整审计链表 &rarr;
+              完整审计日志 &rarr;
             </button>
           </div>
 
@@ -584,14 +584,14 @@ export default function Dashboard({ setTab }: DashboardProps) {
                   <div className="flex-1 space-y-1 pb-3">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-semibold text-gray-800">
-                        {log.actor === 'admin' ? '操作员: admin' : '系统内核 (daemon)'}
+                        {log.actor === 'admin' ? '操作员: admin' : '系统服务'}
                       </span>
                       <span className="text-[10px] text-gray-400">
                         {new Date(log.created_at).toLocaleTimeString()}
                       </span>
                     </div>
                     <p className="text-gray-600 leading-normal">
-                      执行了 <span className="font-mono bg-gray-100 text-gray-700 px-1 border border-gray-200/50 rounded-sm">{log.action}</span> 事务对
+                      执行了 <span className="font-mono bg-gray-100 text-gray-700 px-1 border border-gray-200/50 rounded-sm">{log.action}</span> 操作，目标为
                       <strong className="text-gray-800 font-medium"> ({log.entity_type})</strong>.
                     </p>
                   </div>

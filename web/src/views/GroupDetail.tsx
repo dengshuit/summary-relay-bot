@@ -150,13 +150,13 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
             showToast({
               tone: 'success',
               title: '测试摘要已生成',
-              detail: '已生成页面预览结果，未推送也未改动游标。'
+              detail: '摘要已生成，可查看结果。'
             });
           } else if (task.status === 'failed') {
             showToast({
               tone: 'error',
               title: `测试摘要失败${task.error_type ? `: ${task.error_type}` : ''}`,
-              detail: task.error_message || '未知内部错误'
+              detail: task.error_message || '出现未知错误'
             });
           } else {
             showToast({
@@ -174,7 +174,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
               status: 'failed',
               step: 'completed',
               error_type: 'poll_failed',
-              error_message: err.message || '轮询任务状态失败',
+              error_message: err.message || '获取任务状态失败',
               finished_at: new Date().toISOString()
             }
           : current);
@@ -196,7 +196,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
             showToast({
               tone: 'error',
               title: `摘要任务已中止${job.error_type ? `: ${job.error_type}` : ''}`,
-              detail: job.error_message || '未知内部错误'
+              detail: job.error_message || '出现未知错误'
             });
           }
           fetchGroupDetail();
@@ -232,7 +232,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-2">
         <RefreshCw className="w-6 h-6 text-indigo-600 animate-spin" />
-        <p className="text-sm text-gray-500">正在获取群组特化参数链表...</p>
+        <p className="text-sm text-gray-500">正在加载群组配置...</p>
       </div>
     );
   }
@@ -340,7 +340,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
         {/* Settings Panel form */}
         <div className="lg:col-span-8 bg-white border border-[#e4e6ec] rounded-xl shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-[#e4e6ec] bg-[#fbfbfe]">
-            <h3 className="text-sm font-bold text-gray-900">定时排程与提示词模板绑定</h3>
+            <h3 className="text-sm font-bold text-gray-900">自动摘要设置</h3>
           </div>
 
           <form onSubmit={handleSaveSettings} className="p-6 space-y-6">
@@ -397,7 +397,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
             {/* Switch option */}
             <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
               <div className="space-y-0.5">
-                <span className="text-xs font-semibold text-gray-800 block">开启自动生成的群组自动轮询</span>
+                <span className="text-xs font-semibold text-gray-800 block">开启群组自动生成摘要</span>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
@@ -428,7 +428,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
         <div className="lg:col-span-4 space-y-6">
           <div className="bg-white border border-[#e4e6ec] rounded-xl shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-[#e4e6ec] bg-[#fbfbfe]">
-              <h3 className="text-xs font-bold text-gray-900">群组运行核心状态指标</h3>
+              <h3 className="text-xs font-bold text-gray-900">群组运行状态</h3>
             </div>
             <div className="p-5 space-y-4 text-xs">
               <div className="flex items-center justify-between">
@@ -457,14 +457,14 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
               <div className="border-t border-gray-100 my-2"></div>
 
               <div className="space-y-1.5">
-                <span className="text-[10px] text-gray-400 uppercase tracking-widest block font-bold">上次整理点及成果</span>
+                <span className="text-[10px] text-gray-400 uppercase tracking-widest block font-bold">上次摘要</span>
                 <div className="bg-[#fafafa] p-3 border border-[#e4e6ec] rounded-lg space-y-1.5 text-[11px]">
                   <div className="flex justify-between">
-                    <span className="text-gray-500">截止消息流水序列</span>
+                    <span className="text-gray-500">已处理至消息</span>
                     <strong className="text-gray-700 font-mono">#{data.summary_state?.last_summary_sequence || 0}</strong>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-500">发送完毕时间</span>
+                    <span className="text-gray-500">上次完成时间</span>
                     <strong className="text-gray-700 font-mono">
                       {data.summary_state?.last_summary_at ? new Date(data.summary_state.last_summary_at).toLocaleTimeString() : '尚未启动'}
                     </strong>

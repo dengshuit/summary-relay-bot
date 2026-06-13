@@ -63,25 +63,25 @@ export default function AuditLogs() {
   const getLogExplanation = (log: AuditLog) => {
     switch (log.action) {
       case 'create':
-        return `创建了新 ${log.entity_type} 实体`;
+        return `创建了 ${log.entity_type} 配置`;
       case 'update':
-        return `修改更新了 ${log.entity_type} 实体属性`;
+        return `更新了 ${log.entity_type} 配置`;
       case 'delete':
         return `永久删除了 ${log.entity_type} 配置`;
       case 'validate_success':
-        return `校验 Telegram Bot 双向通信连接成功`;
+        return `Telegram Bot 连接校验成功`;
       case 'validate_failure':
-        return `测试 API 验证联通失败`;
+        return `连接校验失败`;
       case 'update_summary_settings':
-        return `更改修改了 Telegram 群组汇总调度策略`;
+        return `更新了群组摘要策略`;
       case 'manual_summary_success':
-        return `管理员强制对群组触发单次手动汇总处理成功`;
+        return `管理员触发了群组摘要生成`;
       case 'set_default':
-        return `将当前 ${log.entity_type} 划设为系统默认处理模板`;
+        return `将当前 ${log.entity_type} 设为默认模板`;
       case 'polling_worker_restart':
-        return `重新启动了后台轮询守护主核心引擎机制`;
+        return `后台服务已重新启动`;
       default:
-        return `执行了 "${log.action}" 事务`;
+        return `执行了 "${log.action}" 操作`;
     }
   };
 
@@ -110,11 +110,11 @@ export default function AuditLogs() {
               { value: "llm_provider", label: "提供商连接" },
               { value: "summary_profile", label: "摘要模版" },
               { value: "group", label: "群组设置" },
-              { value: "system", label: "系统守护" }
+              { value: "system", label: "系统服务" }
             ]}
             value={entityType}
             onChange={(val) => setEntityType(val)}
-            placeholder="筛选实体类别"
+            placeholder="筛选类别"
           />
         </div>
 
@@ -125,7 +125,7 @@ export default function AuditLogs() {
           </span>
           <input
             type="text"
-            placeholder="搜索事务动作 (e.g. create, update)"
+            placeholder="搜索操作类型 (e.g. create, update)"
             value={actionSearch}
             onChange={(e) => setActionSearch(e.target.value)}
             className="w-full h-10 pl-9 pr-4 py-2 bg-white border border-[#e4e6ec] rounded-lg text-[15px] text-gray-800 placeholder-gray-400 focus:border-indigo-500 focus:outline-none leading-normal transition-all"
@@ -150,14 +150,14 @@ export default function AuditLogs() {
         {loading && logs.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 gap-2">
             <RefreshCw className="w-6 h-6 text-indigo-600 animate-spin" />
-            <p className="text-xs text-gray-400">拉取系统日志中...</p>
+            <p className="text-xs text-gray-400">正在加载系统日志...</p>
           </div>
         ) : errorText ? (
           <p className="text-xs text-red-500 text-center py-6">加载日志遇到异常: {errorText}</p>
         ) : logs.length === 0 ? (
           <div className="text-center py-12 space-y-3">
             <FolderOpen className="w-10 h-10 text-slate-300 mx-auto" />
-            <p className="text-xs text-gray-400 font-semibold">暂无任何在案匹配的审计日志记录点</p>
+            <p className="text-xs text-gray-400 font-semibold">暂无匹配的审计日志</p>
           </div>
         ) : (
           <div className="relative border-l border-indigo-100 ml-3 space-y-6">
@@ -179,14 +179,14 @@ export default function AuditLogs() {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-gray-900 text-xs">
-                          {log.actor === 'admin' ? '操作员 (admin admin)' : '系统调度 (polling daemon)'}
+                          {log.actor === 'admin' ? '操作员 (admin)' : '系统服务'}
                         </span>
                         <span className="text-slate-300">|</span>
                         <span className="px-1.5 py-0.5 rounded text-[8px] font-bold font-mono uppercase bg-slate-100 text-slate-500">
                           {log.action}
                         </span>
                         <span className="text-[10px] text-gray-400">
-                          实体: <code className="bg-gray-50 border border-gray-100 rounded px-1 font-bold text-indigo-600">{log.entity_type}</code>
+                          对象: <code className="bg-gray-50 border border-gray-100 rounded px-1 font-bold text-indigo-600">{log.entity_type}</code>
                         </span>
                         {log.entity_id && (
                           <span className="text-[10px] font-mono text-gray-400">
@@ -203,10 +203,10 @@ export default function AuditLogs() {
                     {/* Explanatory description card */}
                     <div className="bg-[#fbfbfe]/70 hover:bg-[#fbfbfe] border border-gray-100 p-3 rounded-lg flex items-center justify-between gap-4 cursor-pointer" onClick={() => toggleExpandLog(log.id)}>
                       <p className="text-[14px] text-gray-700 leading-normal">
-                        💁 {getLogExplanation(log)}。
+                        {getLogExplanation(log)}。
                       </p>
                       <button className="text-gray-400 hover:text-indigo-600 text-[11px] font-semibold flex items-center gap-0.5 shrink-0 select-none">
-                        <span>详情比较</span>
+                        <span>查看详情</span>
                         {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                       </button>
                     </div>
@@ -216,7 +216,7 @@ export default function AuditLogs() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 animate-fadeIn">
                         {/* Before panel */}
                         <div className="space-y-1">
-                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1 block">变动前状态 (Before Props)</span>
+                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1 block">变动前</span>
                           <pre className="bg-[#fafafa] border border-gray-150 p-3 rounded-lg font-mono text-[10px] text-gray-500 leading-relaxed overflow-x-auto max-h-[180px] block">
                             {tryPrettyPrintJSON(log.redacted_before)}
                           </pre>
@@ -224,7 +224,7 @@ export default function AuditLogs() {
 
                         {/* After panel */}
                         <div className="space-y-1">
-                          <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest pl-1 block">变动后成果 (After Props)</span>
+                          <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest pl-1 block">变动后</span>
                           <pre className="bg-indigo-50/20 border border-indigo-100 p-3 rounded-lg font-mono text-[10px] text-gray-600 leading-relaxed overflow-x-auto max-h-[180px] block">
                             {tryPrettyPrintJSON(log.redacted_after)}
                           </pre>

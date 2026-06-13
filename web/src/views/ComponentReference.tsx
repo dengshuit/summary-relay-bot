@@ -210,7 +210,7 @@ export default function ComponentReference() {
               <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
               <div>
                 <strong className="font-bold text-amber-900 block mb-0.5">配置 pending 提示：</strong>
-                密钥更换需要重启轮询守护进程以刷新工作台状态。
+                密钥更换后需要重新应用配置。
               </div>
             </div>
           </div>

@@ -86,7 +86,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         {/* Help footnotes */}
         <div className="mt-8 pt-4 border-t border-gray-100 text-center">
           <p className="text-[11px] text-gray-400 leading-relaxed">
-            安全起见，您的登录 Token 仅会临时缓存在 <strong>sessionStorage</strong> 中，关闭浏览器窗口即会自动清除，本平台不保存敏感密钥。
+            安全起见，您的登录状态只会保留在当前浏览器窗口中，关闭窗口后会自动清除。
           </p>
           <p className="text-[10px] text-indigo-500 font-mono mt-3 select-all">
             本地默认开发 Token: <span className="font-semibold bg-indigo-50 px-1 py-0.5 rounded">admin-token-123</span>

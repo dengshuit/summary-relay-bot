@@ -375,7 +375,7 @@ export default function Groups({ setTab, setSelectedGroupId }: GroupsProps) {
         )}
       </div>
 
-      {/* 历史总结记录列表弹窗 */}
+      {/* 摘要列表弹窗 */}
       <AnimatePresence>
         {viewingGroup && (
           <div
@@ -418,7 +418,7 @@ export default function Groups({ setTab, setSelectedGroupId }: GroupsProps) {
                 {loadingSummaries ? (
                   <div className="p-12 flex flex-col items-center justify-center gap-3">
                     <RefreshCw className="w-7 h-7 text-indigo-500 animate-spin" />
-                    <span className="text-xs text-gray-400 font-medium">加载历史归档记录...</span>
+                    <span className="text-xs text-gray-400 font-medium">正在加载摘要...</span>
                   </div>
                 ) : summariesError ? (
                   <div className="p-8 text-center text-xs text-rose-500 leading-relaxed font-semibold">
@@ -427,8 +427,8 @@ export default function Groups({ setTab, setSelectedGroupId }: GroupsProps) {
                 ) : groupSummaries.length === 0 ? (
                   <div className="p-12 text-center text-xs text-slate-400 font-medium bg-[#fafafa]/50 border border-dashed border-gray-200 rounded-xl space-y-1.5">
                     <FileText className="w-8 h-8 text-gray-300 mx-auto" />
-                    <p>暂无本群组历史总结记录。</p>
-                    <p className="text-[10px] text-gray-400">在 Telegram 发送消息后，由 Bot 自动轮调或在群组详情手动触发即可生成成果。</p>
+                    <p>暂无本群组摘要。</p>
+                    <p className="text-[10px] text-gray-400">有新的摘要后会显示在这里。</p>
                   </div>
                 ) : (
                   <div className="space-y-3">

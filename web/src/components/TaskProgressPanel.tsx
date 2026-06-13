@@ -207,7 +207,7 @@ export default function TaskProgressPanel({
             <div className="pt-2 border-t border-red-100 text-red-700 flex gap-2">
               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
               <div className="min-w-0">
-                <p className="font-semibold truncate">{errorType || 'summary_test_failed'}</p>
+                <p className="font-semibold truncate">{errorType || '摘要生成失败'}</p>
                 <p className="mt-0.5 break-words">{errorMessage || '任务执行失败'}</p>
               </div>
             </div>

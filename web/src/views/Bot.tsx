@@ -267,7 +267,7 @@ export default function BotConfig() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-2">
         <RefreshCw className="w-6 h-6 text-indigo-600 animate-spin" />
-        <p className="text-sm text-gray-500">正在获取 Telegram Poller 数据库信息...</p>
+        <p className="text-sm text-gray-500">正在加载 Bot 配置...</p>
       </div>
     );
   }
@@ -369,14 +369,14 @@ export default function BotConfig() {
                     required={isCreateMode}
                     value={botToken}
                     onChange={(e) => setBotToken(e.target.value)}
-                    placeholder={selectedBot?.secret.configured ? '密钥已配置。输入新 Bot Token 密码进行覆盖更换 (留空代表不作任何修改)' : '请填入格式为 (数字:字母) 的 Telegram Bot Token'}
+                    placeholder={selectedBot?.secret.configured ? '输入新 Bot Token 以更换当前密钥' : '请填入格式为 (数字:字母) 的 Telegram Bot Token'}
                     className="w-full px-3.5 py-2.5 rounded-lg border border-gray-200 text-[15px] text-gray-800 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 font-mono h-10 leading-normal"
                   />
                 </div>
                 {selectedBot?.secret.configured && (
                   <div className="flex items-center justify-between text-[10px] text-[#5f6672]">
                     <span className="flex items-center gap-1 font-mono text-green-600 bg-green-50 px-1 py-0.5 rounded-sm">
-                      <Check className="w-3.5 h-3.5" /> 已在数据库安全存储。
+                      <Check className="w-3.5 h-3.5" /> 密钥已配置。
                     </span>
                     <span>最后更换时间: {selectedBot.secret.updated_at ? new Date(selectedBot.secret.updated_at).toLocaleString() : '未知'}</span>
                   </div>
@@ -384,7 +384,7 @@ export default function BotConfig() {
               </div>
               <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <span className="text-[15px] font-semibold text-gray-850 block">启用当前 Bot 在线轮询服务</span>
+                  <span className="text-[15px] font-semibold text-gray-850 block">启用当前 Bot 服务</span>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input
@@ -518,7 +518,7 @@ export default function BotConfig() {
                 <div className="flex items-start gap-3">
                   <span className="w-5 h-5 rounded-full bg-emerald-600 text-white text-[10px] flex items-center justify-center font-bold font-mono shrink-0 select-none">3</span>
                   <p className="pt-0.5 font-medium text-gray-700">
-                    在左侧表单中配置 <code>所有者 ID</code> 及 <code>APIToken</code>，按需开启轮询服务后保存。
+                    在左侧表单中配置 <code>所有者 ID</code> 及 <code>APIToken</code>，按需启用后保存。
                   </p>
                 </div>
               </div>
@@ -541,18 +541,18 @@ export default function BotConfig() {
             </div>
             <div className="p-6 space-y-4">
               <p className="text-xs text-gray-500 leading-relaxed">
-                此工具通过模拟发送 <code>getMe</code> 请求到 Telegram 官方服务器，验证该 Bot Token 密钥是否真实。
+                用于校验当前 Bot Token 是否可用。
               </p>
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-gray-700 block">
-                  模拟临时密钥 (选填)
+                  临时校验密钥 (选填)
                 </label>
                 <input
                   type="text"
                   value={tempToken}
                   onChange={(e) => setTempToken(e.target.value)}
-                  placeholder="留空则执行库中已保存密钥；在此填入不影响并不会保存新密钥"
+                  placeholder="留空使用已保存密钥"
                   className="w-full px-3 py-2 rounded-lg border border-[#e4e6ec] text-xs font-mono text-gray-800"
                 />
               </div>
