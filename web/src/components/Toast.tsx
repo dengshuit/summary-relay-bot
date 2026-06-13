@@ -50,8 +50,6 @@ const toneStyle: Record<
     border: string;
     icon: string;
     iconFrame: string;
-    label: string;
-    labelText: string;
     progress: string;
   }
 > = {
@@ -60,8 +58,6 @@ const toneStyle: Record<
     border: 'border-emerald-200/80',
     icon: 'text-emerald-600',
     iconFrame: 'bg-emerald-50 border-emerald-100',
-    label: 'text-emerald-700',
-    labelText: '成功',
     progress: 'bg-emerald-500'
   },
   error: {
@@ -69,8 +65,6 @@ const toneStyle: Record<
     border: 'border-red-200/90',
     icon: 'text-red-600',
     iconFrame: 'bg-red-50 border-red-100',
-    label: 'text-red-700',
-    labelText: '错误',
     progress: 'bg-red-500'
   },
   warning: {
@@ -78,8 +72,6 @@ const toneStyle: Record<
     border: 'border-amber-200/90',
     icon: 'text-amber-600',
     iconFrame: 'bg-amber-50 border-amber-100',
-    label: 'text-amber-700',
-    labelText: '警告',
     progress: 'bg-amber-500'
   },
   info: {
@@ -87,8 +79,6 @@ const toneStyle: Record<
     border: 'border-indigo-200/80',
     icon: 'text-indigo-600',
     iconFrame: 'bg-indigo-50 border-indigo-100',
-    label: 'text-indigo-700',
-    labelText: '提示',
     progress: 'bg-indigo-500'
   }
 };
@@ -160,11 +150,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                     <Icon className={`h-4.5 w-4.5 shrink-0 ${style.icon}`} strokeWidth={2.3} />
                   </div>
                   <div className="min-w-0 flex-1 pt-0.5">
-                    <div className="mb-0.5 flex min-w-0 items-center gap-2">
-                      <span className={`shrink-0 text-[10px] font-bold leading-4 tracking-wider ${style.label}`}>
-                        {style.labelText}
-                      </span>
-                      <span className="h-1 w-1 rounded-full bg-gray-300" aria-hidden="true" />
+                    <div className="mb-0.5 flex min-w-0 items-center">
                       <p className="min-w-0 truncate text-[13px] font-bold leading-5 text-gray-950">{toast.title}</p>
                     </div>
                     {toast.detail && (
