@@ -696,6 +696,7 @@ Unified admin feedback into Toast notifications, added status tone differentiati
 - Converted Bot save feedback from an in-page colored status strip to the shared Toast channel.
 - Differentiated success, error, warning, and info states with restrained status tones.
 - Refined Toast styling to match the admin UI surface language: white panel, rounded `xl` corners, subtle status border, icon frame, left accent rail, and bottom timeout progress line.
+- Removed redundant visible status labels such as "success", "error", "warning", and "info" from Toast content, leaving icons and status styling to carry that signal.
 
 ### Git Commits
 
@@ -704,6 +705,7 @@ Unified admin feedback into Toast notifications, added status tone differentiati
 | `d9eedd0` | (see git log) |
 | `a781d6c` | (see git log) |
 | `c2342cf` | (see git log) |
+| `c80cea4` | (see git log) |
 
 ### Testing
 
@@ -781,6 +783,41 @@ Added a WebUI guide for obtaining Telegram API ID and API Hash in the Userbot co
 - [OK] `npm run lint`
 - [OK] `npm run build`
 - [OK] `git diff --check -- web/src/views/Userbot.tsx`
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 24: Web test summary and task progress panel
+
+**Date**: 2026-06-13
+**Task**: Web test summary and task progress panel
+**Branch**: `master`
+
+### Summary
+
+Implemented the Web test-summary flow, task progress panel, bounded in-memory task registry, result dialog, theme-aligned controls, and cleaned up user-facing copy to avoid internal implementation details. Verified frontend lint/build, backend focused tests during the feature work, and diff whitespace checks.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `28bb494` | (see git log) |
+| `fac7a87` | (see git log) |
+| `5761057` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
 
 ### Status
 
