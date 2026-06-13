@@ -154,13 +154,13 @@ function MainApp() {
                 if (tab === 'bot') navigate('/bot');
                 else if (tab === 'engine') navigate('/engine');
                 else if (tab === 'groups') navigate('/groups');
+                else if (tab === 'summaries') navigate('/summaries');
                 else if (tab === 'audit-logs') navigate('/audit-logs');
                 else if (tab.startsWith('group-detail-')) {
                   const id = tab.replace('group-detail-', '');
                   navigate(`/groups/${id}`);
                 }
               }}
-              setSelectedGroupId={() => {}}
             />
           </PrivateLayout>
         }

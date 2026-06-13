@@ -21,8 +21,8 @@ ADMIN_HELP = (
 )
 
 USER_HELP = (
-    "Send a private message here and it will be relayed to the bot owner. "
-    "The owner can reply through the bot without exposing their personal account."
+    "Just send your message here. It will be forwarded to the bot owner, "
+    "and they can reply through this bot."
 )
 
 
@@ -38,7 +38,7 @@ def build_router(*, owner_id: int) -> Router:
         Command("summary", "groups", "enable_group", "disable_group", "set_interval", "reply"),
         PrivateNonOwnerFilter(owner_id),
     )
-    router.message.register(handle_user_help, Command("help"), PrivateNonOwnerFilter(owner_id))
+    router.message.register(handle_user_help, Command("start", "help"), PrivateNonOwnerFilter(owner_id))
     return router
 
 

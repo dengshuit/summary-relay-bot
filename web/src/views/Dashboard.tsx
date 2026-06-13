@@ -1,21 +1,20 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
-import { DashboardData, GroupItem, PrivateRelayItem } from '../api/types';
+import { DashboardData, PrivateRelayItem } from '../api/types';
 import {
   RefreshCw,
   Bot,
   Users,
   FileText,
-  Activity,
   AlertTriangle,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  User,
-  History,
   TrendingUp,
   Workflow,
-  MessageSquare
+  Sunrise,
+  Sun,
+  Sunset,
+  Moon,
+  LucideIcon
 } from 'lucide-react';
 import {
   AreaChart,
@@ -31,17 +30,61 @@ import {
 
 interface DashboardProps {
   setTab: (tab: string) => void;
-  setSelectedGroupId: (id: string | null) => void;
 }
 
-export default function Dashboard({ setTab, setSelectedGroupId }: DashboardProps) {
+interface WelcomeState {
+  greeting: string;
+  detail: string;
+  Icon: LucideIcon;
+  iconClassName: string;
+}
+
+function getWelcomeState(now: Date): WelcomeState {
+  const hour = now.getHours();
+
+  if (hour >= 5 && hour < 12) {
+    return {
+      greeting: '早上好, 管理员',
+      detail: '新一天的 Telegram summary-relay 守护已就绪。',
+      Icon: Sunrise,
+      iconClassName: 'text-amber-500'
+    };
+  }
+
+  if (hour >= 12 && hour < 18) {
+    return {
+      greeting: '下午好, 管理员',
+      detail: '午后摘要与私聊转发通道保持在线。',
+      Icon: Sun,
+      iconClassName: 'text-orange-500'
+    };
+  }
+
+  if (hour >= 18 && hour < 22) {
+    return {
+      greeting: '晚上好, 管理员',
+      detail: '晚间群组摘要与消息中转正在持续守护。',
+      Icon: Sunset,
+      iconClassName: 'text-violet-500'
+    };
+  }
+
+  return {
+    greeting: '夜间好, 管理员',
+    detail: '夜间低噪声守护中，关键摘要任务会继续执行。',
+    Icon: Moon,
+    iconClassName: 'text-slate-500'
+  };
+}
+
+export default function Dashboard({ setTab }: DashboardProps) {
   const [data, setData] = useState<DashboardData | null>(null);
-  const [groups, setGroups] = useState<GroupItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadingRuntime, setReloadingRuntime] = useState(false);
   const [privateRelays, setPrivateRelays] = useState<PrivateRelayItem[]>([]);
   const [rankRange, setRankRange] = useState<'1d' | '3d' | 'all'>('1d');
+  const [now, setNow] = useState(() => new Date());
 
   const fetchDashboardData = async () => {
     setLoading(true);
@@ -49,8 +92,6 @@ export default function Dashboard({ setTab, setSelectedGroupId }: DashboardProps
     try {
       const res = await api.getDashboard();
       setData(res);
-      const groupsRes = await api.getGroups({ limit: 100 });
-      setGroups(groupsRes.items);
 
       // Fetch private relays for ranking calculation
       try {
@@ -73,6 +114,11 @@ export default function Dashboard({ setTab, setSelectedGroupId }: DashboardProps
     fetchDashboardData();
   }, []);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const handleReloadRuntime = async () => {
     setReloadingRuntime(true);
     try {
@@ -84,12 +130,6 @@ export default function Dashboard({ setTab, setSelectedGroupId }: DashboardProps
     } finally {
       setReloadingRuntime(false);
     }
-  };
-
-  const handleGroupClick = (id: number | string) => {
-    const normalizedId = String(id);
-    setSelectedGroupId(normalizedId);
-    setTab(`group-detail-${normalizedId}`);
   };
 
   if (loading && !data) {
@@ -170,6 +210,9 @@ export default function Dashboard({ setTab, setSelectedGroupId }: DashboardProps
   };
 
   const COLORS = ['#7C3AED', '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#CBD5E1'];
+  const welcome = getWelcomeState(now);
+  const WelcomeIcon = welcome.Icon;
+  const metricCardClass = 'w-full text-left no-underline text-inherit bg-white rounded-xl border border-gray-100 p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:-translate-y-1 transition-all duration-300 flex flex-col min-h-[142px] relative overflow-hidden group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-2';
 
   return (
     <div className="space-y-6 w-full max-w-[96%] xl:max-w-[93%] 2xl:max-w-[1590px] mx-auto p-4 sm:p-6 font-sans">
@@ -183,18 +226,15 @@ export default function Dashboard({ setTab, setSelectedGroupId }: DashboardProps
             </span>
             <span className="text-[11px] font-bold text-gray-500 tracking-wider uppercase">系统就绪 (Running)</span>
           </div>
-          <h1 className="text-[24px] font-semibold text-gray-900 mt-1 cursor-default">
-            下午好, 管理员 ☕️
+          <h1 className="text-[24px] font-semibold text-gray-900 mt-1 cursor-default flex items-center gap-2">
+            <WelcomeIcon className={`w-6 h-6 ${welcome.iconClassName}`} />
+            <span>{welcome.greeting}</span>
           </h1>
           <p className="text-[15px] leading-relaxed text-gray-500 mt-1">
-            Telegram summary-relay 单轮询后台在线守护中。系统最后更新时间: {new Date().toLocaleTimeString()}
+            {welcome.detail} 系统最后更新时间: {now.toLocaleTimeString()}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="text-right hidden sm:block">
-            <span className="text-xs font-mono text-gray-400 block">ADMIN TOKEN IP AUTH</span>
-            <span className="text-[11px] text-gray-500 font-medium">Session token active in browser</span>
-          </div>
           <button
             onClick={fetchDashboardData}
             disabled={loading}
@@ -232,7 +272,7 @@ export default function Dashboard({ setTab, setSelectedGroupId }: DashboardProps
       {/* Metric Dashboards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 animate-in fade-in duration-300">
         {/* Bot Config Metrics */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_12px_28px_rgba(99,102,241,0.08)] hover:-translate-y-1 hover:border-indigo-150 transition-all duration-300 flex flex-col min-h-[142px] relative overflow-hidden group">
+        <Link to="/bot" aria-label="前往 Bot 配置" className={`${metricCardClass} hover:shadow-[0_12px_28px_rgba(99,102,241,0.08)] hover:border-indigo-150`}>
           <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-indigo-50/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
           <div className="space-y-4 relative z-10">
             <div className="flex items-center justify-between">
@@ -260,14 +300,14 @@ export default function Dashboard({ setTab, setSelectedGroupId }: DashboardProps
               </div>
             </div>
           </div>
-        </div>
+        </Link>
 
         {/* Groups total */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_12px_28px_rgba(59,130,246,0.08)] hover:-translate-y-1 hover:border-blue-150 transition-all duration-300 flex flex-col min-h-[142px] relative overflow-hidden group">
+        <Link to="/groups" aria-label="前往群组信息" className={`${metricCardClass} hover:shadow-[0_12px_28px_rgba(59,130,246,0.08)] hover:border-blue-150`}>
           <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-blue-50/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
           <div className="space-y-4 relative z-10">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-gray-400 tracking-wider uppercase">已拉入群组</span>
+              <span className="text-[11px] font-bold text-gray-400 tracking-wider uppercase">群组信息</span>
               <div className="p-2 rounded-lg bg-blue-50/80 border border-blue-100/60 text-blue-600 shadow-[0_1px_3px_rgba(59,130,246,0.05)]">
                 <Users className="w-[18px] h-[18px]" />
               </div>
@@ -283,14 +323,14 @@ export default function Dashboard({ setTab, setSelectedGroupId }: DashboardProps
               </p>
             </div>
           </div>
-        </div>
+        </Link>
 
         {/* Default profile indicator */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_12px_28px_rgba(16,185,129,0.08)] hover:-translate-y-1 hover:border-emerald-150 transition-all duration-300 flex flex-col min-h-[142px] relative overflow-hidden group">
+        <Link to="/engine" aria-label="前往 LLM 渠道" className={`${metricCardClass} hover:shadow-[0_12px_28px_rgba(16,185,129,0.08)] hover:border-emerald-150`}>
           <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-emerald-50/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
           <div className="space-y-4 relative z-10">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-gray-400 tracking-wider uppercase">全局摘要引擎</span>
+              <span className="text-[11px] font-bold text-gray-400 tracking-wider uppercase">LLM渠道</span>
               <div className="p-2 rounded-lg bg-emerald-50/80 border border-emerald-100/60 text-emerald-600 shadow-[0_1px_3px_rgba(16,185,129,0.05)]">
                 <FileText className="w-[18px] h-[18px]" />
               </div>
@@ -304,10 +344,10 @@ export default function Dashboard({ setTab, setSelectedGroupId }: DashboardProps
               </p>
             </div>
           </div>
-        </div>
+        </Link>
 
         {/* summary statistics */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_12px_28px_rgba(245,158,11,0.08)] hover:-translate-y-1 hover:border-amber-150 transition-all duration-300 flex flex-col min-h-[142px] relative overflow-hidden group">
+        <Link to="/summaries" aria-label="前往 24h 摘要任务" className={`${metricCardClass} hover:shadow-[0_12px_28px_rgba(245,158,11,0.08)] hover:border-amber-150`}>
           <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-amber-50/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
           <div className="space-y-4 relative z-10">
             <div className="flex items-center justify-between">
@@ -327,7 +367,7 @@ export default function Dashboard({ setTab, setSelectedGroupId }: DashboardProps
               </div>
             </div>
           </div>
-        </div>
+        </Link>
       </div>
 
       {/* Visual Analytics Grid */}
