@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 22
+- **Total Sessions**: 23
 - **Last Active**: 2026-06-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~753 | Active |
+| `journal-1.md` | ~789 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 23 | 2026-06-13 | Userbot API credential guide | `f17decd` | `master` |
 | 22 | 2026-06-13 | Telethon group summary refactor | `d80b89f` | `master` |
 | 21 | 2026-06-13 | Admin Toast Notification Polish | `d9eedd0`, `a781d6c`, `c2342cf` | `master` |
 | 20 | 2026-06-13 | Brand and home UX refinements | `f971d72` | `master` |

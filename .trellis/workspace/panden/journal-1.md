@@ -751,3 +751,41 @@ Completed the Telethon userbot group-summary refactor across schema, private rel
 ### Next Steps
 
 - None - task complete
+
+
+## Session 23: Userbot API credential guide
+
+**Date**: 2026-06-13
+**Task**: Userbot API credential guide
+**Branch**: `master`
+
+### Summary
+
+Added a WebUI guide for obtaining Telegram API ID and API Hash in the Userbot configuration card.
+
+### Main Changes
+
+- Added a compact Userbot setup guide for obtaining api_id and api_hash from my.telegram.org.
+- Kept the copy scoped to API credentials only; no extra explanations were added for other fields.
+- Verified with web lint, web build, and diff whitespace checks before commit.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f17decd` | (see git log) |
+
+### Testing
+
+- [OK] `npm run lint`
+- [OK] `npm run build`
+- [OK] `git diff --check -- web/src/views/Userbot.tsx`
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
