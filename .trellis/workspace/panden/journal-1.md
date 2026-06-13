@@ -645,3 +645,36 @@ Improved Telegram bot validation diagnostics and proxy usage, fixed polling runt
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: Brand and home UX refinements
+
+**Date**: 2026-06-13
+**Task**: Brand and home UX refinements
+**Branch**: `master`
+
+### Summary
+
+Implemented SummaryBot branding, dashboard card navigation, time-aware greeting, and non-owner /start and /help guidance; verified backend focused tests and frontend checks.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f971d72` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

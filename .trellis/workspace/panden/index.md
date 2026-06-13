@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 19
-- **Last Active**: 2026-06-12
+- **Total Sessions**: 20
+- **Last Active**: 2026-06-13
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~647 | Active |
+| `journal-1.md` | ~680 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 20 | 2026-06-13 | Brand and home UX refinements | `f971d72` | `master` |
 | 19 | 2026-06-12 | Bot validation and private relay diagnostics | `062192f`, `2e81ed9`, `9fe2d82` | `master` |
 | 18 | 2026-06-12 | LLM Provider Channel Configuration | `a2ad191`, `090098f` | `master` |
 | 17 | 2026-06-12 | Improve Bot Config Save Flow | `e454d96`, `240eba1` | `master` |
