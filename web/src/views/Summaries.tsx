@@ -22,8 +22,10 @@ import {
   Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useToast } from '../components/Toast';
 
 export default function Summaries() {
+  const showToast = useToast();
   const location = useLocation();
   const [summaries, setSummaries] = useState<HistoricalSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -521,8 +523,21 @@ export default function Summaries() {
                 <button
                   onClick={() => {
                     if (selectedSummary.content) {
-                      navigator.clipboard.writeText(selectedSummary.content);
-                      alert('已将 Markdown 格式摘要复制到剪切板 ⚡');
+                      navigator.clipboard
+                        .writeText(selectedSummary.content)
+                        .then(() => {
+                          showToast({
+                            tone: 'success',
+                            title: '已复制 Markdown 摘要'
+                          });
+                        })
+                        .catch((err: any) => {
+                          showToast({
+                            tone: 'error',
+                            title: '复制失败',
+                            detail: err.message
+                          });
+                        });
                     }
                   }}
                   className="px-4 py-1.5 text-xs font-semibold text-gray-700 hover:text-gray-900 hover:bg-gray-50 border border-gray-200 rounded-lg cursor-pointer transition-all inline-flex items-center gap-1"

@@ -17,6 +17,7 @@ import {
   Hash
 } from 'lucide-react';
 import CustomSelect from '../components/CustomSelect';
+import { useToast } from '../components/Toast';
 
 const TYPE_PRESETS: Record<string, string[]> = {
   openai: [
@@ -48,6 +49,7 @@ const TYPE_PRESETS: Record<string, string[]> = {
 };
 
 export default function Engine() {
+  const showToast = useToast();
   const [activeTab, setActiveTab] = useState<'provider' | 'profile'>('provider');
   const [providers, setProviders] = useState<LLMProvider[]>([]);
   const [profiles, setProfiles] = useState<SummaryProfile[]>([]);
@@ -114,7 +116,11 @@ export default function Engine() {
       setConfirmModal(null);
       await fetchEngineData();
     } catch (err: any) {
-      alert('删除失败: ' + err.message);
+      showToast({
+        tone: 'error',
+        title: '删除失败',
+        detail: err.message
+      });
     } finally {
       setSaving(false);
     }
@@ -206,10 +212,17 @@ export default function Engine() {
         setSelectedUpstreamModels(res.models);
         setUpstreamFetchModal(true);
       } else {
-        alert('无法获取上游模型数据.');
+        showToast({
+          tone: 'warning',
+          title: '无法获取上游模型数据'
+        });
       }
     } catch (err: any) {
-      alert('从接口拉取上游模型失败: ' + err.message);
+      showToast({
+        tone: 'error',
+        title: '从接口拉取上游模型失败',
+        detail: err.message
+      });
     } finally {
       setFetchingModels(false);
     }
@@ -253,7 +266,11 @@ export default function Engine() {
       await api.updateProvider(p.id, { enabled: !p.enabled });
       await fetchEngineData();
     } catch (err: any) {
-      alert('修改 Provider 状态失败: ' + err.message);
+      showToast({
+        tone: 'error',
+        title: '修改 Provider 状态失败',
+        detail: err.message
+      });
     }
   };
 
@@ -261,7 +278,11 @@ export default function Engine() {
     e.preventDefault();
     if (!provName.trim()) return;
     if (provSupportedModels.length === 0) {
-      alert('当前渠道没有配置模型，请先在模型列表中添加至少一个模型。');
+      showToast({
+        tone: 'warning',
+        title: '当前渠道没有配置模型',
+        detail: '请先在模型列表中添加至少一个模型。'
+      });
       return;
     }
 
@@ -285,7 +306,11 @@ export default function Engine() {
       setProviderModal(false);
       await fetchEngineData();
     } catch (err: any) {
-      alert('保存渠道失败: ' + err.message);
+      showToast({
+        tone: 'error',
+        title: '保存渠道失败',
+        detail: err.message
+      });
     } finally {
       setSaving(false);
     }
@@ -295,10 +320,18 @@ export default function Engine() {
     setTestingId(String(id));
     try {
       const res = await api.testProvider(id);
-      alert('接口测试成功！\n' + res.detail);
+      showToast({
+        tone: 'success',
+        title: '接口测试成功',
+        detail: res.detail
+      });
       await fetchEngineData();
     } catch (err: any) {
-      alert('连接测试失败: ' + err.message);
+      showToast({
+        tone: 'error',
+        title: '连接测试失败',
+        detail: err.message
+      });
     } finally {
       setTestingId(null);
     }
@@ -307,7 +340,11 @@ export default function Engine() {
   // Profile operations
   const openAddProfile = () => {
     if (providers.length === 0) {
-      alert('请确保当前在 LLM Provider 面板下已至少存在一个可用的连接！');
+      showToast({
+        tone: 'warning',
+        title: '缺少可用的 LLM 渠道',
+        detail: '请先在 LLM Provider 面板下创建至少一个连接。'
+      });
       return;
     }
     setEditingProfileId(null);
@@ -342,7 +379,10 @@ export default function Engine() {
     e.preventDefault();
     if (!profName.trim()) return;
     if (!profModel) {
-      alert('请指定一个必填的执行模型！');
+      showToast({
+        tone: 'warning',
+        title: '请指定执行模型'
+      });
       return;
     }
 
@@ -379,7 +419,11 @@ export default function Engine() {
       setProfileModal(false);
       await fetchEngineData();
     } catch (err: any) {
-      alert('保存 Summary Profile 失败: ' + err.message);
+      showToast({
+        tone: 'error',
+        title: '保存 Summary Profile 失败',
+        detail: err.message
+      });
     } finally {
       setSaving(false);
     }
@@ -393,7 +437,11 @@ export default function Engine() {
       await api.setDefaultProfile(id);
       await fetchEngineData();
     } catch (err: any) {
-      alert('设为默认模板失败: ' + err.message);
+      showToast({
+        tone: 'error',
+        title: '设为默认模板失败',
+        detail: err.message
+      });
     }
   };
 

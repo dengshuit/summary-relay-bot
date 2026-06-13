@@ -27,6 +27,7 @@ import {
   Pie,
   Cell
 } from 'recharts';
+import { useToast } from '../components/Toast';
 
 interface DashboardProps {
   setTab: (tab: string) => void;
@@ -78,6 +79,7 @@ function getWelcomeState(now: Date): WelcomeState {
 }
 
 export default function Dashboard({ setTab }: DashboardProps) {
+  const showToast = useToast();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -123,10 +125,18 @@ export default function Dashboard({ setTab }: DashboardProps) {
     setReloadingRuntime(true);
     try {
       const res = await api.reloadBotRuntime();
-      alert(res.detail);
+      showToast({
+        tone: 'success',
+        title: '运行时配置已应用',
+        detail: res.detail
+      });
       fetchDashboardData();
     } catch (err: any) {
-      alert('应用运行时配置失败: ' + err.message);
+      showToast({
+        tone: 'error',
+        title: '应用运行时配置失败',
+        detail: err.message
+      });
     } finally {
       setReloadingRuntime(false);
     }

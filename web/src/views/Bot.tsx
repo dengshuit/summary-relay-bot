@@ -9,6 +9,7 @@ import {
   Zap,
   HelpCircle
 } from 'lucide-react';
+import { useToast } from '../components/Toast';
 
 type SaveNotice = {
   kind: 'success' | 'error' | 'info';
@@ -17,12 +18,12 @@ type SaveNotice = {
 };
 
 export default function BotConfig() {
+  const showToast = useToast();
   const [bots, setBots] = useState<BotInstance[]>([]);
   const [selectedBotId, setSelectedBotId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<DashboardData['telegram_startup'] | null>(null);
-  const [saveNotice, setSaveNotice] = useState<SaveNotice | null>(null);
 
   // Edit fields
   const [name, setName] = useState('');
@@ -100,26 +101,14 @@ export default function BotConfig() {
           ? '未启用'
           : runtimeStatus.status
     : '未知';
-  const saveNoticeStyle = saveNotice?.kind === 'success'
-    ? {
-        container: 'bg-emerald-50 border-emerald-200',
-        icon: 'text-emerald-600',
-        title: 'text-emerald-900',
-        detail: 'text-emerald-700',
-      }
-    : saveNotice?.kind === 'error'
-      ? {
-          container: 'bg-rose-50 border-rose-200',
-          icon: 'text-rose-600',
-          title: 'text-rose-900',
-          detail: 'text-rose-700',
-        }
-      : {
-          container: 'bg-slate-50 border-slate-200',
-          icon: 'text-slate-500',
-          title: 'text-slate-900',
-          detail: 'text-slate-600',
-        };
+
+  const showSaveNotice = (notice: SaveNotice) => {
+    showToast({
+      tone: notice.kind,
+      title: notice.title,
+      detail: notice.detail
+    });
+  };
 
   const validateSavedBot = async (botId: number | string): Promise<SaveNotice> => {
     const result = await api.validateBot({
@@ -143,12 +132,11 @@ export default function BotConfig() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSaveNotice(null);
 
     if (isCreateMode) {
       if (!name.trim() || !ownerId.trim() || !botToken.trim()) {
-        setSaveNotice({
-          kind: 'error',
+        showToast({
+          tone: 'error',
           title: '保存失败',
           detail: '请填入 Bot 别名、所有者 Telegram ID 和 Bot Token 后再保存。',
         });
@@ -177,10 +165,10 @@ export default function BotConfig() {
         setBotToken('');
         setOwnerId('');
         await fetchBots(newBot.id);
-        setSaveNotice(nextNotice);
+        showSaveNotice(nextNotice);
       } catch (err: any) {
-        setSaveNotice({
-          kind: 'error',
+        showToast({
+          tone: 'error',
           title: '保存失败',
           detail: err.message || '创建 Bot 配置失败。',
         });
@@ -194,8 +182,8 @@ export default function BotConfig() {
 
     const trimmedName = name.trim();
     if (!trimmedName) {
-      setSaveNotice({
-        kind: 'error',
+      showToast({
+        tone: 'error',
         title: '保存失败',
         detail: 'Bot 别名不能为空。',
       });
@@ -209,8 +197,8 @@ export default function BotConfig() {
     if (botToken.trim() !== '') updatePayload.bot_token = botToken.trim();
 
     if (Object.keys(updatePayload).length === 1) {
-      setSaveNotice({
-        kind: 'info',
+      showToast({
+        tone: 'info',
         title: '无可提交变更',
       });
       return;
@@ -242,10 +230,10 @@ export default function BotConfig() {
       setBotToken('');
       setOwnerId('');
       await fetchBots(selectedBotId);
-      setSaveNotice(nextNotice);
+      showSaveNotice(nextNotice);
     } catch (err: any) {
-      setSaveNotice({
-        kind: 'error',
+      showToast({
+        tone: 'error',
         title: '保存失败',
         detail: err.message || '更新 Bot 配置失败。',
       });
@@ -331,22 +319,6 @@ export default function BotConfig() {
         </div>
       )}
 
-      {saveNotice && (
-        <div className={`${saveNoticeStyle.container} border rounded-xl p-4 flex items-start gap-3`}>
-          {saveNotice.kind === 'success' ? (
-            <Check className={`w-5 h-5 ${saveNoticeStyle.icon} mt-0.5 shrink-0`} />
-          ) : (
-            <AlertCircle className={`w-5 h-5 ${saveNoticeStyle.icon} mt-0.5 shrink-0`} />
-          )}
-          <div>
-            <h4 className={`text-xs font-semibold ${saveNoticeStyle.title} uppercase tracking-widest`}>{saveNotice.title}</h4>
-            {saveNotice.detail && (
-              <p className={`text-xs ${saveNoticeStyle.detail} mt-0.5`}>{saveNotice.detail}</p>
-            )}
-          </div>
-        </div>
-      )}
-
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Main Info Fields Form */}
           <div className="lg:col-span-8 bg-white border border-gray-200 rounded-lg shadow-[0_1px_2px_rgba(0,0,0,0.03)] overflow-hidden">
@@ -364,10 +336,7 @@ export default function BotConfig() {
                     type="text"
                     required
                     value={name}
-                    onChange={(e) => {
-                      setName(e.target.value);
-                      setSaveNotice(null);
-                    }}
+                    onChange={(e) => setName(e.target.value)}
                     placeholder="例如: 生产环境摘要Bot"
                     className="w-full px-3.5 py-2.5 rounded-lg border border-gray-200 text-[15px] text-gray-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 h-10 leading-normal"
                   />
@@ -382,10 +351,7 @@ export default function BotConfig() {
                     type="text"
                     required={isCreateMode}
                     value={ownerId}
-                    onChange={(e) => {
-                      setOwnerId(e.target.value);
-                      setSaveNotice(null);
-                    }}
+                    onChange={(e) => setOwnerId(e.target.value)}
                     placeholder={selectedBot?.owner_id_redacted ? `已脱敏: ${selectedBot.owner_id_redacted} (输入不为空进行覆盖)` : '输入数字形式 Telegram User ID'}
                     className="w-full px-3.5 py-2.5 rounded-lg border border-gray-200 text-[15px] text-gray-800 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 font-mono h-10 leading-normal"
                   />
@@ -402,10 +368,7 @@ export default function BotConfig() {
                     type="password"
                     required={isCreateMode}
                     value={botToken}
-                    onChange={(e) => {
-                      setBotToken(e.target.value);
-                      setSaveNotice(null);
-                    }}
+                    onChange={(e) => setBotToken(e.target.value)}
                     placeholder={selectedBot?.secret.configured ? '密钥已配置。输入新 Bot Token 密码进行覆盖更换 (留空代表不作任何修改)' : '请填入格式为 (数字:字母) 的 Telegram Bot Token'}
                     className="w-full px-3.5 py-2.5 rounded-lg border border-gray-200 text-[15px] text-gray-800 placeholder:text-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 font-mono h-10 leading-normal"
                   />
@@ -427,10 +390,7 @@ export default function BotConfig() {
                   <input
                     type="checkbox"
                     checked={enabled}
-                    onChange={(e) => {
-                      setEnabled(e.target.checked);
-                      setSaveNotice(null);
-                    }}
+                    onChange={(e) => setEnabled(e.target.checked)}
                     className="sr-only peer"
                   />
                   <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
@@ -441,10 +401,7 @@ export default function BotConfig() {
               <div className="pt-4 border-t border-gray-100 flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => {
-                    setSaveNotice(null);
-                    isCreateMode ? resetBotFields() : loadBotFields(selectedBotId, bots);
-                  }}
+                  onClick={() => isCreateMode ? resetBotFields() : loadBotFields(selectedBotId, bots)}
                   className="px-4 py-2 border border-gray-250 text-gray-500 hover:bg-gray-50 rounded-lg text-xs font-semibold cursor-pointer h-10 flex items-center justify-center"
                 >
                   重置

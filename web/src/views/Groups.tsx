@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import CustomSelect from '../components/CustomSelect';
+import { useToast } from '../components/Toast';
 
 interface GroupsProps {
   setTab: (tab: string) => void;
@@ -30,6 +31,7 @@ interface GroupsProps {
 }
 
 export default function Groups({ setTab, setSelectedGroupId }: GroupsProps) {
+  const showToast = useToast();
   const [items, setItems] = useState<GroupItem[]>([]);
   const [profiles, setProfiles] = useState<SummaryProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,7 +108,11 @@ export default function Groups({ setTab, setSelectedGroupId }: GroupsProps) {
       await api.updateGroupSettings(groupId, updatedSettings);
       fetchGroups();
     } catch (err: any) {
-      alert('更改群组启用态失败: ' + err.message);
+      showToast({
+        tone: 'error',
+        title: '更改群组启用态失败',
+        detail: err.message
+      });
     }
   };
 
@@ -569,8 +575,21 @@ export default function Groups({ setTab, setSelectedGroupId }: GroupsProps) {
                 <button
                   onClick={() => {
                     if (selectedSummary.content) {
-                      navigator.clipboard.writeText(selectedSummary.content);
-                      alert('已将 Markdown 格式摘要复制到剪切板 ⚡');
+                      navigator.clipboard
+                        .writeText(selectedSummary.content)
+                        .then(() => {
+                          showToast({
+                            tone: 'success',
+                            title: '已复制 Markdown 摘要'
+                          });
+                        })
+                        .catch((err: any) => {
+                          showToast({
+                            tone: 'error',
+                            title: '复制失败',
+                            detail: err.message
+                          });
+                        });
                     }
                   }}
                   className="px-4 py-1.5 text-xs font-semibold text-gray-700 hover:text-gray-95 hover:bg-gray-50 border border-gray-200 rounded-lg cursor-pointer transition-all inline-flex items-center gap-1"

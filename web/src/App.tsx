@@ -25,6 +25,7 @@ import PrivateRelays from './views/PrivateRelays';
 // Layout & Components
 import Sidebar from './components/Sidebar';
 import TopProgressBar from './components/TopProgressBar';
+import { ToastProvider } from './components/Toast';
 
 function PrivateLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
@@ -246,7 +247,9 @@ function MainApp() {
 export default function App() {
   return (
     <BrowserRouter>
-      <MainApp />
+      <ToastProvider>
+        <MainApp />
+      </ToastProvider>
     </BrowserRouter>
   );
 }

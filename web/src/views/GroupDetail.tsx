@@ -19,6 +19,7 @@ import {
   Loader2,
   Lock
 } from 'lucide-react';
+import { useToast } from '../components/Toast';
 
 interface GroupDetailViewProps {
   groupId: string;
@@ -26,6 +27,7 @@ interface GroupDetailViewProps {
 }
 
 export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
+  const showToast = useToast();
   const navigate = useNavigate();
   const [data, setData] = useState<GroupDetailType | null>(null);
   const [profiles, setProfiles] = useState<SummaryProfile[]>([]);
@@ -88,10 +90,17 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
         timezone: formTimezone
       };
       await api.updateGroupSettings(groupId, updated);
-      alert('群组摘要轮询调度设定已成功保存！');
+      showToast({
+        tone: 'success',
+        title: '群组设置已保存'
+      });
       fetchGroupDetail();
     } catch (err: any) {
-      alert('保存设置失败: ' + err.message);
+      showToast({
+        tone: 'error',
+        title: '保存设置失败',
+        detail: err.message
+      });
     } finally {
       setSavingSettings(false);
     }
@@ -106,7 +115,11 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
       // start real-time polling loop
       startPollingJob(res.poll_url);
     } catch (err: any) {
-      alert('编排手动摘要遭到限流拒绝: ' + err.message);
+      showToast({
+        tone: 'error',
+        title: '手动摘要触发失败',
+        detail: err.message
+      });
       setTriggeringJob(false);
       setPollingStatus(null);
     }
@@ -129,9 +142,17 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
           setPollingStatus(null);
 
           if (job.status === 'succeeded') {
-            alert('恭喜，大模型群聊纪要生成完毕并已成功发表投递进群！');
+            showToast({
+              tone: 'success',
+              title: '群聊纪要已生成',
+              detail: '摘要已成功投递进群。'
+            });
           } else {
-            alert(`大模型处理报错中止 [${job.error_type}]: ${job.error_message || '未知内部错误'}`);
+            showToast({
+              tone: 'error',
+              title: `大模型处理已中止${job.error_type ? `: ${job.error_type}` : ''}`,
+              detail: job.error_message || '未知内部错误'
+            });
           }
           fetchGroupDetail(); // Refresh logs and stats
         }
