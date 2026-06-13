@@ -103,7 +103,7 @@ export default function TaskProgressPanel({
             <button
               type="button"
               onClick={onBackground}
-              className="px-3 py-1.5 rounded-md border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50"
+              className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-slate-50 hover:border-gray-300 transition-all cursor-pointer"
             >
               后台运行
             </button>
@@ -112,7 +112,7 @@ export default function TaskProgressPanel({
             <button
               type="button"
               onClick={onCancel}
-              className="px-3 py-1.5 rounded-md border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50 inline-flex items-center gap-1.5"
+              className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-slate-50 hover:border-gray-300 transition-all cursor-pointer inline-flex items-center gap-1.5"
             >
               <X className="h-3.5 w-3.5" />
               取消
@@ -122,7 +122,7 @@ export default function TaskProgressPanel({
             <button
               type="button"
               onClick={onRetry}
-              className="px-3 py-1.5 rounded-md bg-red-600 text-xs font-semibold text-white hover:bg-red-700 inline-flex items-center gap-1.5"
+              className="px-3 py-1.5 rounded-lg bg-red-600 text-xs font-semibold text-white hover:bg-red-700 transition-all cursor-pointer inline-flex items-center gap-1.5"
             >
               <RotateCcw className="h-3.5 w-3.5" />
               重试
@@ -132,7 +132,7 @@ export default function TaskProgressPanel({
             <button
               type="button"
               onClick={onViewResult}
-              className="px-3 py-1.5 rounded-md bg-emerald-600 text-xs font-semibold text-white hover:bg-emerald-700 inline-flex items-center gap-1.5"
+              className="px-2.5 py-1.5 font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50/50 hover:bg-indigo-50 border border-indigo-100/80 rounded-lg cursor-pointer transition-all inline-flex items-center gap-1 shrink-0"
             >
               <Eye className="h-3.5 w-3.5" />
               查看结果

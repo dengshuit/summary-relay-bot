@@ -504,7 +504,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
               <button
                 type="button"
                 onClick={() => setShowResultDialog(false)}
-                className="p-1.5 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+                className="p-1.5 px-2 bg-white text-xs border border-gray-200 hover:bg-slate-50 cursor-pointer hover:border-gray-300 text-gray-400 hover:text-gray-650 rounded-lg transition-all"
                 title="关闭"
               >
                 <X className="w-4 h-4" />
@@ -521,7 +521,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailViewProps) {
               <button
                 type="button"
                 onClick={() => setShowResultDialog(false)}
-                className="px-4 py-2 rounded-md bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800"
+                className="px-4 py-1.5 bg-white border border-gray-200 hover:bg-slate-50 hover:border-gray-300 text-gray-700 rounded-lg text-xs font-semibold cursor-pointer transition-all"
               >
                 关闭
               </button>
